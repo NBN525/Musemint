@@ -1,2 +1,2 @@
 # Musemint
-Creating sub-brand for RST Global
+Creative sub-brand for RST Global
