@@ -1,0 +1,19 @@
+{
+  "name": "musemint-site",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "autoprefixer": "^10.4.18",
+    "next": "^14.2.5",
+    "papaparse": "^5.4.1",
+    "postcss": "^8.4.33",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.10.4",
+    "tailwindcss": "^3.4.9"
+  }
+}
