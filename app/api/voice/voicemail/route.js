@@ -1,4 +1,3 @@
-// Receives the POST after a successful <Record ... action="/api/voice/voicemail">
 export async function POST(req) {
   const form = await req.formData();
   const from = (form.get("From") || "").toString();
@@ -6,7 +5,7 @@ export async function POST(req) {
   const recordingUrl = (form.get("RecordingUrl") || "").toString();
   const duration = (form.get("RecordingDuration") || "").toString();
 
-  // Fire-and-forget log to Google Sheet (if configured)
+  // Log to Google Sheet if configured
   try {
     const url = process.env.SHEET_WEBHOOK_URL;
     if (url) {
@@ -24,9 +23,9 @@ export async function POST(req) {
         })
       });
     }
-  } catch (_) {}
+  } catch {}
 
-  // (Optional) SMS alert to you
+  // Optional SMS alert
   try {
     const sid = process.env.TWILIO_ACCOUNT_SID;
     const key = process.env.TWILIO_API_KEY_SID;
@@ -39,7 +38,7 @@ export async function POST(req) {
       const body = new URLSearchParams({
         From: fromNum,
         To: toNum,
-        Body: `New voicemail from ${from} (${duration}s): ${recordingUrl}.mp3`
+        Body: `New VM from ${from} (${duration}s): ${recordingUrl}.mp3`
       });
       await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
         method: "POST",
@@ -50,13 +49,11 @@ export async function POST(req) {
         body
       });
     }
-  } catch (_) {}
+  } catch {}
 
-  // Respond 200 to Twilio (no additional TwiML needed here)
   return new Response("ok");
 }
 
-// Optional GET for quick health check
 export async function GET() {
   return new Response("ok");
 }
