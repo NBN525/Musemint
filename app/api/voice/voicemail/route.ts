@@ -1,39 +1,34 @@
-// app/api/voice/voicemail/route.ts
-import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
-export const runtime = "nodejs"; // ensures Node runtime on Vercel
-
-function responseWithTwiML(xml: string) {
-  return new Response(xml, {
+const twiml = (xml: string) =>
+  new NextResponse(xml, {
     status: 200,
-    headers: { "Content-Type": "text/xml" },
+    headers: { "Content-Type": "text/xml; charset=utf-8" },
   });
-}
 
-// Twilio will POST here for calls; we also handle GET just in case.
-export async function POST(_req: NextRequest) {
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="alice">
-    Please leave your message after the tone. 
-    When you are finished, press the pound key.
-  </Say>
-  <Record
-    maxLength="120"
-    playBeep="true"
-    finishOnKey="#"
-    action="/api/handle-voicemail"
-    method="POST"
-    recordingStatusCallback="/api/voice/complete"
-    recordingStatusCallbackMethod="POST"
-  />
-  <Say voice="alice">We did not receive a message. Goodbye.</Say>
-  <Hangup/>
-</Response>`;
-  return responseWithTwiML(twiml);
-}
+export const GET = () => POST(); // allow GET for quick checks
 
-export async function GET(req: NextRequest) {
-  // Some tools hit GET during verification; serve the same TwiML.
-  return POST(req);
+export function POST() {
+  const voice = "Polly.Joanna-Neural"; // more natural
+  const fallbackVoice = "alice";
+
+  const xml = `
+    <Response>
+      <Say voice="${voice}">
+        Please leave your message after the tone. When you are finished, press the pound key.
+      </Say>
+      <Say voice="${fallbackVoice}"></Say>
+      <Record
+        maxLength="120"
+        playBeep="true"
+        finishOnKey="#"
+        action="/api/voice/handle"
+        method="POST"
+        trim="trim-silence" />
+      <Say voice="${voice}">We did not receive a message. Goodbye.</Say>
+      <Hangup/>
+    </Response>
+  `.trim();
+
+  return twiml(xml);
 }
