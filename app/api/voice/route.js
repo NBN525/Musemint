@@ -1,62 +1,49 @@
-// Receives the POST after a successful <Record ... action="/api/voice/voicemail">
+// /app/api/voice/route.js
+import { NextResponse } from "next/server";
+
+const twiml = (xml) =>
+  new NextResponse(xml, { headers: { "Content-Type": "text/xml" } });
+
 export async function POST(req) {
+  // Twilio sends form-encoded data
   const form = await req.formData();
-  const from = (form.get("From") || "").toString();
-  const callSid = (form.get("CallSid") || "").toString();
-  const recordingUrl = (form.get("RecordingUrl") || "").toString();
-  const duration = (form.get("RecordingDuration") || "").toString();
+  const digits = form.get("Digits");
 
-  // Fire-and-forget log to Google Sheet (if configured)
-  try {
-    const url = process.env.SHEET_WEBHOOK_URL;
-    if (url) {
-      await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          timestamp: new Date().toISOString(),
-          source: "Twilio-Voicemail",
-          from,
-          callSid,
-          recordingUrl,
-          durationSec: duration,
-          status: "new"
-        })
-      });
+  // If the caller already pressed a key, branch now
+  if (digits) {
+    const dept =
+      digits === "1" ? "Sales" : digits === "2" ? "Support" : null;
+
+    if (!dept) {
+      return twiml(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">Invalid selection.</Say>
+  <Redirect method="POST">/api/voice</Redirect>
+</Response>`);
     }
-  } catch (_) {}
 
-  // (Optional) SMS alert to you
-  try {
-    const sid = process.env.TWILIO_ACCOUNT_SID;
-    const key = process.env.TWILIO_API_KEY_SID;
-    const secret = process.env.TWILIO_API_KEY_SECRET;
-    const fromNum = process.env.TWILIO_FROM_NUMBER;
-    const toNum = process.env.ALERT_SMS_TO;
+    // Important: nothing after <Record/> so control goes to action URL
+    return twiml(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice">
+    You reached ${dept}. Please leave your name, number, and a brief message after the tone.
+    Press pound when finished.
+  </Say>
+  <Record playBeep="true" maxLength="120" finishOnKey="#"
+          method="POST" action="/api/voice/voicemail" />
+</Response>`);
+  }
 
-    if (sid && key && secret && fromNum && toNum) {
-      const auth = Buffer.from(`${key}:${secret}`).toString("base64");
-      const body = new URLSearchParams({
-        From: fromNum,
-        To: toNum,
-        Body: `New voicemail from ${from} (${duration}s): ${recordingUrl}.mp3`
-      });
-      await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
-        method: "POST",
-        headers: {
-          Authorization: `Basic ${auth}`,
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        body
-      });
-    }
-  } catch (_) {}
-
-  // Respond 200 to Twilio (no additional TwiML needed here)
-  return new Response("ok");
+  // First hit: play the menu and gather a single digit
+  return twiml(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Gather numDigits="1" action="/api/voice" method="POST" timeout="5">
+    <Say voice="alice">Welcome to R S T Global. For sales, press 1. For support, press 2.</Say>
+  </Gather>
+  <Say voice="alice">We didn't receive any input.</Say>
+  <Redirect method="POST">/api/voice</Redirect>
+</Response>`);
 }
 
-// Optional GET for quick health check
-export async function GET() {
-  return new Response("ok");
-}
+// Optional: allow GET to hit the same logic (useful during testing)
+export const GET = POST;
