@@ -1,0 +1,7 @@
+{
+  "redirects": [
+    { "source": "https://musemint.vercel.app/:path*", "destination": "https://ai.rstglobal.ca/:path*", "permanent": true },
+    { "source": "https://musemint.rstglobal.ca/:path*", "destination": "https://ai.rstglobal.ca/:path*", "permanent": true },
+    { "source": "/", "destination": "https://ai.rstglobal.ca", "permanent": true }
+  ]
+}
