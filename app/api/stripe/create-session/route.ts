@@ -25,7 +25,7 @@ export async function POST(req: Request) {
       billing_address_collection: "auto",
       automatic_tax: { enabled: false }, // flip to true if/when you enable Stripe Tax
       metadata: {
-        product: "MuseMint Planner",
+        product: "MuseMint Business Planner",
       },
     });
 
