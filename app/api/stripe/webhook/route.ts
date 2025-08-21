@@ -1,41 +1,56 @@
-// app/api/stripe/webhook/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 
-export const runtime = "nodejs";         // raw body supported
-export const dynamic = "force-dynamic";  // don’t cache webhook
+export const runtime = "nodejs";          // allow raw body
+export const dynamic = "force-dynamic";   // no caching
 
-// (A) Lightweight GET/HEAD handlers so any pings/health checks don't 405
-export async function GET() {
-  return NextResponse.json({ ok: true });
-}
-export async function HEAD() {
-  return new Response(null, { status: 200 });
-}
+// Health checks so you don't get 405s in browser/Stripe pings
+export async function GET()     { return NextResponse.json({ ok: true }); }
+export async function HEAD()    { return new Response(null, { status: 200 }); }
+export async function OPTIONS() { return new Response(null, { status: 200 }); }
 
-// (B) Your existing POST handler ↓ (keep your verification logic)
+// Webhook POST
 export async function POST(req: NextRequest) {
-  // IMPORTANT: read the raw body as text for signature verification
-  const signature = req.headers.get("stripe-signature");
-  if (!signature) {
+  const sig = req.headers.get("stripe-signature");
+  if (!sig) {
     return NextResponse.json({ error: "Missing stripe-signature header" }, { status: 400 });
   }
 
   const rawBody = await req.text();
 
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2023-10-16" });
-  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
-  let event: Stripe.Event;
+  const secret = process.env.STRIPE_WEBHOOK_SECRET!; // from this very endpoint in Stripe
 
+  let event: Stripe.Event;
   try {
-    event = stripe.webhooks.constructEvent(rawBody, signature, endpointSecret);
+    event = stripe.webhooks.constructEvent(rawBody, sig, secret);
   } catch (err: any) {
     return NextResponse.json({ error: `Signature verification failed: ${err.message}` }, { status: 400 });
   }
 
-  // handle only events you care about
   if (event.type === "checkout.session.completed") {
-    // ... your logic (sheet write, etc.)
+    const session = event.data.object as Stripe.Checkout.Session;
+
+    try {
+      const url = process.env.SHEET_WEBHOOK_URL;
+      if (url) {
+        await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            timestamp: new Date().toISOString(),
+            source: "Stripe",
+            event: event.type,
+            sessionId: session.id,
+            amount_total: session.amount_total,
+            currency: session.currency,
+            status: session.status,
+          }),
+        });
+      }
+    } catch (e) {
+      console.error("Sheet logging failed", e);
+    }
   }
 
   return NextResponse.json({ received: true }, { status: 200 });
