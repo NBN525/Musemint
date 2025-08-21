@@ -1,86 +1,41 @@
-// app/api/stripe-webhook/route.ts
+// app/api/stripe/webhook/route.ts
+import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { NextResponse } from "next/server";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+export const runtime = "nodejs";         // raw body supported
+export const dynamic = "force-dynamic";  // don’t cache webhook
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2023-10-16" });
-
-/** Post a row to your Google Sheet webhook (Apps Script) */
-async function postToSheet(payload: any) {
-  const url = process.env.SHEET_WEBHOOK_URL;
-  if (!url) return;
-  try {
-    await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  } catch (e) {
-    console.error("sheet webhook error", e);
-  }
+// (A) Lightweight GET/HEAD handlers so any pings/health checks don't 405
+export async function GET() {
+  return NextResponse.json({ ok: true });
+}
+export async function HEAD() {
+  return new Response(null, { status: 200 });
 }
 
-export async function POST(req: Request) {
-  const sig = req.headers.get("stripe-signature");
-  if (!sig) return NextResponse.json({ error: "Missing Stripe signature" }, { status: 400 });
+// (B) Your existing POST handler ↓ (keep your verification logic)
+export async function POST(req: NextRequest) {
+  // IMPORTANT: read the raw body as text for signature verification
+  const signature = req.headers.get("stripe-signature");
+  if (!signature) {
+    return NextResponse.json({ error: "Missing stripe-signature header" }, { status: 400 });
+  }
 
-  const raw = await req.text();
+  const rawBody = await req.text();
+
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2023-10-16" });
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
   let event: Stripe.Event;
 
   try {
-    event = stripe.webhooks.constructEvent(raw, sig, process.env.STRIPE_WEBHOOK_SECRET!);
+    event = stripe.webhooks.constructEvent(rawBody, signature, endpointSecret);
   } catch (err: any) {
-    console.error("Webhook signature verification failed.", err?.message);
-    return NextResponse.json({ error: "Bad signature" }, { status: 400 });
+    return NextResponse.json({ error: `Signature verification failed: ${err.message}` }, { status: 400 });
   }
 
-  try {
-    switch (event.type) {
-      case "checkout.session.completed": {
-        const session = event.data.object as Stripe.Checkout.Session;
-
-        // Optionally expand line items/customer if you want more detail:
-        // const full = await stripe.checkout.sessions.retrieve(session.id, { expand: ["line_items", "customer"] });
-
-        await postToSheet({
-          timestamp: new Date().toISOString(),
-          source: "Stripe",
-          type: "checkout.session.completed",
-          session_id: session.id,
-          amount_total: session.amount_total,
-          currency: session.currency,
-          customer_email: session.customer_details?.email,
-          status: session.payment_status,
-        });
-        break;
-      }
-
-      case "charge.refunded":
-      case "charge.succeeded":
-      case "payment_intent.succeeded":
-      case "payment_intent.payment_failed": {
-        const obj: any = event.data.object;
-        await postToSheet({
-          timestamp: new Date().toISOString(),
-          source: "Stripe",
-          type: event.type,
-          amount: obj.amount ?? obj.amount_received ?? null,
-          currency: obj.currency ?? null,
-          customer_email: obj.receipt_email ?? null,
-          status: obj.status ?? null,
-        });
-        break;
-      }
-
-      default:
-        // no-op for other events
-        break;
-    }
-  } catch (e) {
-    console.error("Webhook handler error:", e);
-    return NextResponse.json({ received: true, note: "handler error" }, { status: 200 });
+  // handle only events you care about
+  if (event.type === "checkout.session.completed") {
+    // ... your logic (sheet write, etc.)
   }
 
   return NextResponse.json({ received: true }, { status: 200 });
