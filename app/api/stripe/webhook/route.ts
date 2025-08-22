@@ -2,19 +2,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 
+// Run on Node (not Edge) so we can read the raw body for signature verification
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: "2023-10-16",
 });
 
-// (A) simple GET health check so you can hit it in a browser
-export async function GET() {
-  return NextResponse.json({ ok: true, route: "stripe/webhook" }, { status: 200 });
-}
-
-// Optional: log to your Google Sheet (no-op if not set)
+// optional: log to your Google Sheet
 async function postToSheet(payload: any) {
   const url = process.env.SHEET_WEBHOOK_URL;
   if (!url) return;
@@ -29,41 +25,75 @@ async function postToSheet(payload: any) {
   }
 }
 
-// (B) the real Stripe webhook (POST)
 export async function POST(req: NextRequest) {
-  // Stripe signs the raw body, so we must read it as text
-  const body = await req.text();
   const sig = req.headers.get("stripe-signature");
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  const whSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
-  if (!sig || !secret) {
-    return NextResponse.json({ error: "Missing stripe-signature or webhook secret" }, { status: 400 });
+  // Read raw body (required by Stripe verification)
+  const rawBody = await req.text();
+
+  // If we don’t have a secret configured, don’t break Stripe delivery
+  if (!whSecret || !sig) {
+    console.warn("Webhook signature checks disabled or missing header.");
+    await postToSheet({
+      when: new Date().toISOString(),
+      source: "Stripe",
+      note: "Missing STRIPE_WEBHOOK_SECRET or signature header",
+    });
+    return NextResponse.json({ received: true }, { status: 200 });
   }
 
   let event: Stripe.Event;
+
   try {
-    event = stripe.webhooks.constructEvent(body, sig, secret);
+    event = await stripe.webhooks.constructEventAsync(rawBody, sig, whSecret);
   } catch (err: any) {
-    console.error("Signature verification failed:", err?.message);
+    console.error("❌ Signature verification failed:", err?.message);
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
-  // Handle events you care about
   try {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
-        await postToSheet({ source: "stripe", type: event.type, sessionId: session.id, ts: new Date().toISOString() });
+        // Do your fulfillment here…
+        await postToSheet({
+          when: new Date().toISOString(),
+          source: "Stripe",
+          event: event.type,
+          amount_total: session.amount_total,
+          currency: session.currency,
+          customer_email: session.customer_details?.email,
+          status: session.payment_status,
+        });
         break;
       }
+
+      // A few common events — we just acknowledge them
+      case "payment_intent.succeeded":
+      case "payment_intent.payment_failed":
+      case "customer.created":
+      case "product.created":
+      case "price.created": {
+        // Acknowledge to avoid retries; log lightweight info
+        await postToSheet({
+          when: new Date().toISOString(),
+          source: "Stripe",
+          event: event.type,
+        });
+        break;
+      }
+
       default: {
-        // ignore others for now
+        // Ignore everything else with 200 OK (prevents retries)
+        break;
       }
     }
-  } catch (e) {
-    console.error("Webhook handler error:", e);
-    return NextResponse.json({ ok: false }, { status: 500 });
-  }
 
-  return NextResponse.json({ received: true }, { status: 200 });
+    return NextResponse.json({ received: true }, { status: 200 });
+  } catch (err: any) {
+    console.error("❌ Handler error:", err?.message || err);
+    // Return 200 so Stripe doesn’t endlessly retry non‑critical paths
+    return NextResponse.json({ received: true }, { status: 200 });
+  }
 }
