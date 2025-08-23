@@ -1,37 +1,53 @@
 // app/api/stripe/create-session/route.ts
+import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2023-10-16" });
+function getStripe() {
+  // Use LIVE by default; you can switch to TEST by swapping the env key
+  const key =
+    process.env.STRIPE_SECRET_KEY_LIVE || process.env.STRIPE_SECRET_KEY;
+  if (!key) throw new Error("Missing Stripe secret key");
+  return new Stripe(key, { apiVersion: "2023-10-16" });
+}
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
+    const stripe = getStripe();
+
+    // Optional: accept quantity from the client; default to 1
     const { quantity = 1 } = await req.json().catch(() => ({ quantity: 1 }));
+
+    // Your fixed price ID (the one you created in Stripe)
+    const priceId = process.env.STRIPE_PRICE_ID;
+    if (!priceId) {
+      return NextResponse.json(
+        { error: "Missing STRIPE_PRICE_ID" },
+        { status: 500 }
+      );
+    }
+
+    // Base site URL for redirects (env set in step 1)
+    const baseUrl = process.env.SITE_URL || "http://localhost:3000";
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
-      line_items: [
-        {
-          price: process.env.STRIPE_PRICE_ID!,
-          quantity,
-        },
-      ],
-      success_url: `${process.env.SITE_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.SITE_URL}/cancel`,
+      line_items: [{ price: priceId, quantity }],
+      success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/cancel`,
+      // Collect email so it appears on your success page
+      customer_creation: "if_required",
       allow_promotion_codes: true,
-      billing_address_collection: "auto",
-      automatic_tax: { enabled: false }, // flip to true if/when you enable Stripe Tax
-      metadata: {
-        product: "MuseMint Business Planner",
-      },
+      automatic_tax: { enabled: false },
     });
 
     return NextResponse.json({ url: session.url }, { status: 200 });
   } catch (err: any) {
     console.error("create-session error:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message || "Failed to create session" },
+      { status: 500 }
+    );
   }
 }
