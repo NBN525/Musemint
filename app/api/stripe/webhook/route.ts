@@ -1,16 +1,22 @@
 // app/api/stripe/webhook/route.ts
-import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
-// Run on Node (not Edge) so we can read the raw body for signature verification
+// Force Node runtime so we can read the raw body for Stripe verification
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-  apiVersion: "2023-10-16",
-});
+// --- ENV you need in Vercel ---
+// STRIPE_SECRET_KEY_LIVE   = sk_live_...
+// STRIPE_SECRET_KEY_TEST   = sk_test_...
+// STRIPE_WEBHOOK_SECRET_LIVE = whsec_...(live endpoint’s secret)
+// STRIPE_WEBHOOK_SECRET_TEST = whsec_...(test endpoint’s secret)
+// SHEET_WEBHOOK_URL (optional) = https://script.google.com/.../exec
 
-// optional: log to your Google Sheet
+const stripeLive = new Stripe(process.env.STRIPE_SECRET_KEY_LIVE || "", { apiVersion: "2023-10-16" });
+const stripeTest = new Stripe(process.env.STRIPE_SECRET_KEY_TEST || "", { apiVersion: "2023-10-16" });
+
 async function postToSheet(payload: any) {
   const url = process.env.SHEET_WEBHOOK_URL;
   if (!url) return;
@@ -20,80 +26,91 @@ async function postToSheet(payload: any) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-  } catch (e) {
-    console.error("sheet webhook error", e);
+  } catch (err) {
+    console.error("Sheet webhook error:", err);
   }
 }
 
 export async function POST(req: NextRequest) {
   const sig = req.headers.get("stripe-signature");
-  const whSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!sig) {
+    return NextResponse.json({ error: "Missing stripe-signature header" }, { status: 400 });
+  }
 
-  // Read raw body (required by Stripe verification)
+  // IMPORTANT: we must read the raw text body (not JSON) for Stripe verification
   const rawBody = await req.text();
 
-  // If we don’t have a secret configured, don’t break Stripe delivery
-  if (!whSecret || !sig) {
-    console.warn("Webhook signature checks disabled or missing header.");
-    await postToSheet({
-      when: new Date().toISOString(),
-      source: "Stripe",
-      note: "Missing STRIPE_WEBHOOK_SECRET or signature header",
-    });
-    return NextResponse.json({ received: true }, { status: 200 });
-  }
+  const whLive = process.env.STRIPE_WEBHOOK_SECRET_LIVE || "";
+  const whTest = process.env.STRIPE_WEBHOOK_SECRET_TEST || "";
 
-  let event: Stripe.Event;
+  let event: Stripe.Event | null = null;
+  let mode: "live" | "test" | null = null;
 
+  // Try LIVE first, then TEST
   try {
-    event = await stripe.webhooks.constructEventAsync(rawBody, sig, whSecret);
-  } catch (err: any) {
-    console.error("❌ Signature verification failed:", err?.message);
-    return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
-  }
-
-  try {
-    switch (event.type) {
-      case "checkout.session.completed": {
-        const session = event.data.object as Stripe.Checkout.Session;
-        // Do your fulfillment here…
-        await postToSheet({
-          when: new Date().toISOString(),
-          source: "Stripe",
-          event: event.type,
-          amount_total: session.amount_total,
-          currency: session.currency,
-          customer_email: session.customer_details?.email,
-          status: session.payment_status,
-        });
-        break;
-      }
-
-      // A few common events — we just acknowledge them
-      case "payment_intent.succeeded":
-      case "payment_intent.payment_failed":
-      case "customer.created":
-      case "product.created":
-      case "price.created": {
-        // Acknowledge to avoid retries; log lightweight info
-        await postToSheet({
-          when: new Date().toISOString(),
-          source: "Stripe",
-          event: event.type,
-        });
-        break;
-      }
-
-      default: {
-        // Ignore everything else with 200 OK (prevents retries)
-        break;
-      }
+    event = Stripe.webhooks.constructEvent(rawBody, sig, whLive);
+    mode = "live";
+  } catch {
+    try {
+      event = Stripe.webhooks.constructEvent(rawBody, sig, whTest);
+      mode = "test";
+    } catch (err) {
+      console.error("Stripe signature verification failed for both secrets:", err);
+      return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
     }
-
-    return NextResponse.json({ received: true }, { status: 200 });
-  } catch (err: any) {
-    console.error("❌ Handler error:", err?.message || err);
-    // Return 200 so Stripe doesn’t endlessly retry non‑critical paths
-    return NextResponse.json({ received: true }, { status: 200 });
   }
+
+  // Choose the correct Stripe client for any follow-up API calls
+  const stripe = mode === "live" ? stripeLive : stripeTest;
+
+  // Handle the events you care about
+  try {
+    switch (event!.type) {
+      case "checkout.session.completed": {
+        const session = event!.data.object as Stripe.Checkout.Session;
+
+        // Optionally fetch line items (needs the right client per mode)
+        let lineItems: Stripe.ApiList<Stripe.LineItem> | null = null;
+        if (session.id) {
+          try {
+            lineItems = await stripe.checkout.sessions.listLineItems(session.id, { limit: 25 });
+          } catch (e) {
+            console.warn("Could not fetch line items:", e);
+          }
+        }
+
+        // Minimal payload for your Sheet (customize as you like)
+        await postToSheet({
+          timestamp: new Date().toISOString(),
+          source: "Stripe",
+          env: mode,
+          event: event!.type,
+          sessionId: session.id,
+          customerEmail: session.customer_details?.email ?? null,
+          amountTotal: session.amount_total, // in cents
+          currency: session.currency,
+          paymentStatus: session.payment_status,
+          items: lineItems?.data?.map((li) => ({
+            desc: li.description,
+            qty: li.quantity,
+            amount_subtotal: li.amount_subtotal,
+            amount_total: li.amount_total,
+          })) ?? [],
+        });
+
+        break;
+      }
+
+      // You can safely ignore other events for now
+      default:
+        // no-op
+        break;
+    }
+  } catch (err) {
+    console.error("Webhook handler error:", err);
+    return NextResponse.json({ error: "Webhook handler error" }, { status: 500 });
+  }
+
+  // Always acknowledge receipt
+  return NextResponse.json({ received: true });
 }
