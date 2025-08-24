@@ -1,25 +1,18 @@
-:root{
-  --brand-bg: #0d1012;        /* charcoal */
-  --brand-card: #13181c;      /* dark slate */
-  --brand-text: #f0eadf;      /* warm ivory */
-  --brand-accent: #d8a850;    /* gold ring */
-  --brand-teal: #2b6a6c;      /* leaf teal */
-
-  --radius-xl: 1.25rem;
-  --shadow-soft: 0 8px 28px rgba(0,0,0,0.35);
-}
-
-@media (prefers-color-scheme: dark){
-  :root{ /* same values for now; easy to tune later */ }
-}
-
-/* Small helpers */
-.bg-brand     { background-color: var(--brand-bg); }
-.card-brand   { background-color: var(--brand-card); }
-.text-brand   { color: var(--brand-text); }
-.text-accent  { color: var(--brand-accent); }
-.border-accent{ border-color: var(--brand-accent); }
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Brand palette helpers (Tailwind colors are set in tailwind.config.js) */
+:root {
+  --brand-bg: #0b1012; /* deep charcoal */
+}
+
+/* Smooth text + links */
+html, body { background: var(--brand-bg); }
+a { @apply underline-offset-2 decoration-white/30 hover:decoration-white; }
+
+/* Utility: hide visually but keep for screen readers */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
