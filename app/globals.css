@@ -1,3 +1,25 @@
+:root{
+  --brand-bg: #0d1012;        /* charcoal */
+  --brand-card: #13181c;      /* dark slate */
+  --brand-text: #f0eadf;      /* warm ivory */
+  --brand-accent: #d8a850;    /* gold ring */
+  --brand-teal: #2b6a6c;      /* leaf teal */
+
+  --radius-xl: 1.25rem;
+  --shadow-soft: 0 8px 28px rgba(0,0,0,0.35);
+}
+
+@media (prefers-color-scheme: dark){
+  :root{ /* same values for now; easy to tune later */ }
+}
+
+/* Small helpers */
+.bg-brand     { background-color: var(--brand-bg); }
+.card-brand   { background-color: var(--brand-card); }
+.text-brand   { color: var(--brand-text); }
+.text-accent  { color: var(--brand-accent); }
+.border-accent{ border-color: var(--brand-accent); }
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
