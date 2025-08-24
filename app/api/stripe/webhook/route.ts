@@ -1,96 +1,66 @@
 // app/api/stripe/webhook/route.ts
+import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import type { NextRequest } from "next/server";
-import { NextResponse } from "next/server";
+import { Resend } from "resend";
 
-export const runtime = "nodejs";
+export const runtime = "nodejs"; 
 export const dynamic = "force-dynamic";
 
-// Stripe clients
-const stripeLive = new Stripe(process.env.STRIPE_SECRET_KEY_LIVE || "", { apiVersion: "2023-10-16" });
-const stripeTest = new Stripe(process.env.STRIPE_SECRET_KEY_TEST || "", { apiVersion: "2023-10-16" });
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: "2023-10-16",
+});
 
-// Post to Google Sheets
-async function postToSheet(payload: any) {
-  const url = process.env.SHEET_WEBHOOK_URL;
-  if (!url) return;
-  try {
-    await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  } catch (err) {
-    console.error("Sheet webhook error:", err);
-  }
-}
+const resend = new Resend(process.env.RESEND_API_KEY!);
 
 export async function POST(req: NextRequest) {
   const sig = req.headers.get("stripe-signature");
-  if (!sig) return NextResponse.json({ error: "Missing signature" }, { status: 400 });
-
-  const rawBody = await req.text();
-  const whLive = process.env.STRIPE_WEBHOOK_SECRET_LIVE || "";
-  const whTest = process.env.STRIPE_WEBHOOK_SECRET_TEST || "";
-
-  let event: Stripe.Event | null = null;
-  let mode: "live" | "test" | null = null;
-
-  try {
-    event = Stripe.webhooks.constructEvent(rawBody, sig, whLive);
-    mode = "live";
-  } catch {
-    try {
-      event = Stripe.webhooks.constructEvent(rawBody, sig, whTest);
-      mode = "test";
-    } catch (err) {
-      console.error("Signature failed:", err);
-      return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
-    }
+  if (!sig) {
+    return NextResponse.json({ error: "Missing Stripe signature header" }, { status: 400 });
   }
 
-  const stripe = mode === "live" ? stripeLive : stripeTest;
+  let event: Stripe.Event;
+  try {
+    const body = await req.text();
+    event = stripe.webhooks.constructEvent(
+      body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET!
+    );
+  } catch (err: any) {
+    console.error("Webhook signature verification failed:", err.message);
+    return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+  }
 
   try {
-    switch (event.type) {
-      case "checkout.session.completed": {
-        const session = event.data.object as Stripe.Checkout.Session;
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object as Stripe.Checkout.Session;
 
-        // fetch line items
-        let lineItems;
-        try {
-          lineItems = await stripe.checkout.sessions.listLineItems(session.id, { limit: 10 });
-        } catch (e) {
-          console.warn("Line item fetch failed", e);
-        }
+      // 👤 Customer info
+      const customerEmail = session.customer_details?.email || "unknown@example.com";
 
-        await postToSheet({
-          timestamp: new Date().toISOString(),
-          environment: mode,
-          eventType: event.type,
-          sessionId: session.id,
-          email: session.customer_details?.email,
-          amountTotal: session.amount_total / 100, // to CAD/USD
-          currency: session.currency,
-          paymentStatus: session.payment_status,
-          items: lineItems?.data.map(li => ({
-            description: li.description,
-            qty: li.quantity,
-            subtotal: li.amount_subtotal / 100,
-            total: li.amount_total / 100
-          })) || [],
-        });
+      // 📧 Send receipt via Resend
+      await resend.emails.send({
+        from: process.env.RECEIPT_FROM!,
+        to: customerEmail,
+        bcc: [process.env.RECEIPT_BCC!],
+        subject: "✅ Thanks for your purchase – RST Global",
+        html: `
+          <h2>Payment Confirmed</h2>
+          <p>Hello,</p>
+          <p>We’ve received your payment of <strong>${(session.amount_total! / 100).toFixed(2)} ${session.currency?.toUpperCase()}</strong>.</p>
+          <p>Your product: <strong>${session.metadata?.product || "RST Planner"}</strong></p>
+          <p>You’ll receive further instructions shortly. If you have questions, contact us at ${process.env.RECEIPT_FROM}.</p>
+          <br/>
+          <p>— RST Global Team</p>
+        `,
+      });
 
-        break;
-      }
-
-      default:
-        console.log(`Unhandled event type ${event.type}`);
+      console.log("✅ Receipt email sent to:", customerEmail);
     }
+
+    return NextResponse.json({ received: true });
   } catch (err) {
-    console.error("Webhook error:", err);
-    return NextResponse.json({ error: "Webhook handling error" }, { status: 500 });
+    console.error("Error handling webhook:", err);
+    return NextResponse.json({ error: "Webhook processing failed" }, { status: 500 });
   }
-
-  return NextResponse.json({ received: true });
 }
