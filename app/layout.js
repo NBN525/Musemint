@@ -1,10 +1,17 @@
-export const metadata = { title: "MuseMint", description: "Design-led digital products by RST Global" };
+import "./globals.css";
+
+export const metadata = {
+  title: "MuseMint",
+  description:
+    "Smart tools & templates for digital planners and business growth — by RST Global.",
+};
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body className="bg-slate-950 text-white">{children}</body>
+      <body className="min-h-screen bg-brand-dark text-white antialiased">
+        {children}
+      </body>
     </html>
   );
 }
-import "./globals.css";
