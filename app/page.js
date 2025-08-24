@@ -29,7 +29,11 @@ export default function Home() {
         </a>
       </div>
 
-      <p className="mb-4 text-lg font-medium">Get early access & updates:</p>
+      <p className="mb-4 text-lg font-medium">
+        Get early access & updates:
+      </p>
+
+      {/* 👉 This is the form */}
       <LeadForm />
     </main>
   );
