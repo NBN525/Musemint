@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { Resend } from "resend";
-// ✅ Fixed import: relative path to /lib/emailTemplates.ts
-import { welcomeEmailHTML, welcomeEmailText } from "../../../lib/emailTemplates";
+import { welcomeEmailHTML, welcomeEmailText } from "../../../../lib/emailTemplates";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: "2025-07-30.basil",
@@ -15,7 +14,6 @@ export async function POST(req: Request) {
   const sig = req.headers.get("stripe-signature") as string;
 
   let event: Stripe.Event;
-
   try {
     event = stripe.webhooks.constructEvent(
       body,
@@ -29,9 +27,7 @@ export async function POST(req: Request) {
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
-
     try {
-      // ✅ send polished welcome email
       if (session.customer_email) {
         await resend.emails.send({
           from: "MuseMint <noreply@rstglobal.ca>",
@@ -41,8 +37,7 @@ export async function POST(req: Request) {
           text: welcomeEmailText(session),
         });
       }
-
-      console.log("✅ Email sent to:", session.customer_email);
+      console.log("✅ Email queued for:", session.customer_email);
     } catch (error) {
       console.error("❌ Error sending email:", error);
     }
