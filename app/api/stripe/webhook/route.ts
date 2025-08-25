@@ -1,66 +1,112 @@
-// app/api/stripe/webhook/route.ts
-import { NextRequest, NextResponse } from "next/server";
+// /app/api/stripe/webhook/route.ts
+import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { Resend } from "resend";
+import { welcomeEmailHTML, welcomeEmailText } from "@/lib/emailTemplates";
 
-export const runtime = "nodejs"; 
+// Ensure Node runtime (Stripe needs the raw body)
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2023-10-16",
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
+  // Let Stripe SDK use its pinned version
 });
 
-const resend = new Resend(process.env.RESEND_API_KEY!);
+const resend = new Resend(process.env.RESEND_API_KEY as string);
 
-export async function POST(req: NextRequest) {
-  const sig = req.headers.get("stripe-signature");
-  if (!sig) {
-    return NextResponse.json({ error: "Missing Stripe signature header" }, { status: 400 });
-  }
+const EMAIL_FROM = process.env.EMAIL_FROM || "MuseMint <noreply@rstglobal.ca>";
+const NEXT_PUBLIC_BASE_URL =
+  process.env.NEXT_PUBLIC_BASE_URL || "https://ai.rstglobal.ca";
 
+// IMPORTANT: use your LIVE webhook secret when receiving live events.
+// If you also have a TEST endpoint, deploy another route or inject the test secret in its env.
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET as string;
+
+export async function POST(req: Request) {
   let event: Stripe.Event;
+
+  // 1) Read raw body
+  const rawBody = await req.text();
+  const signature = req.headers.get("stripe-signature") as string;
+
+  // 2) Verify signature
   try {
-    const body = await req.text();
     event = stripe.webhooks.constructEvent(
-      body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET!
+      rawBody,
+      signature,
+      STRIPE_WEBHOOK_SECRET
     );
   } catch (err: any) {
-    console.error("Webhook signature verification failed:", err.message);
-    return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+    return NextResponse.json(
+      { error: `Webhook signature verification failed: ${err.message}` },
+      { status: 400 }
+    );
   }
 
+  // 3) React to events
   try {
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
 
-      // 👤 Customer info
-      const customerEmail = session.customer_details?.email || "unknown@example.com";
+      // Customer info
+      const customerEmail = session.customer_details?.email || undefined;
+      const customerName = session.customer_details?.name || undefined;
 
-      // 📧 Send receipt via Resend
-      await resend.emails.send({
-        from: process.env.RECEIPT_FROM!,
-        to: customerEmail,
-        bcc: [process.env.RECEIPT_BCC!],
-        subject: "✅ Thanks for your purchase – RST Global",
-        html: `
-          <h2>Payment Confirmed</h2>
-          <p>Hello,</p>
-          <p>We’ve received your payment of <strong>${(session.amount_total! / 100).toFixed(2)} ${session.currency?.toUpperCase()}</strong>.</p>
-          <p>Your product: <strong>${session.metadata?.product || "RST Planner"}</strong></p>
-          <p>You’ll receive further instructions shortly. If you have questions, contact us at ${process.env.RECEIPT_FROM}.</p>
-          <br/>
-          <p>— RST Global Team</p>
-        `,
-      });
+      // Try to locate a receipt URL (from the related PaymentIntent / latest charge)
+      let receiptUrl: string | null = null;
+      try {
+        if (session.payment_intent) {
+          const pi =
+            typeof session.payment_intent === "string"
+              ? await stripe.paymentIntents.retrieve(session.payment_intent, {
+                  expand: ["latest_charge"],
+                })
+              : session.payment_intent;
 
-      console.log("✅ Receipt email sent to:", customerEmail);
+          const charge =
+            (pi as any)?.latest_charge as Stripe.Charge | undefined;
+          receiptUrl = charge?.receipt_url || null;
+        }
+      } catch {
+        // Non-fatal if we cannot fetch the receipt
+      }
+
+      // Decide download URL (you can swap this per product in the future)
+      const downloadUrl = `${NEXT_PUBLIC_BASE_URL}/files/MuseMint-Planner-V1.pdf`;
+
+      // Optional product name (if you pass line_items, you could fetch them here)
+      const productName = "MuseMint Digital Planner";
+
+      // Send via Resend (if we have an email)
+      if (customerEmail) {
+        await resend.emails.send({
+          from: EMAIL_FROM,
+          to: [customerEmail],
+          subject: "Your MuseMint download + receipt",
+          html: welcomeEmailHTML({
+            customerName,
+            productName,
+            downloadUrl,
+            receiptUrl,
+          }),
+          text: welcomeEmailText({
+            customerName,
+            productName,
+            downloadUrl,
+            receiptUrl,
+          }),
+        });
+      }
     }
 
-    return NextResponse.json({ received: true });
-  } catch (err) {
-    console.error("Error handling webhook:", err);
-    return NextResponse.json({ error: "Webhook processing failed" }, { status: 500 });
+    // You can add more handlers here (payment_intent.succeeded, etc.)
+
+    return NextResponse.json({ received: true }, { status: 200 });
+  } catch (err: any) {
+    // Make failures visible to Stripe’s retry system
+    return NextResponse.json(
+      { error: `Webhook handler error: ${err?.message || String(err)}` },
+      { status: 500 }
+    );
   }
 }
