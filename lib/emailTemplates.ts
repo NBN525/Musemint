@@ -1,63 +1,84 @@
 // lib/emailTemplates.ts
 
-type MinimalCheckoutSession = {
-  customer_details?: { name?: string | null };
-  amount_total?: number | null;
-  currency?: string | null;
-};
+export function buildReceiptEmail(opts: {
+  productSummary: string;
+  amount: number;
+  currency: string; // e.g., 'USD'
+  supportEmail: string;
+  brandUrl: string;
+}) {
+  const { productSummary, amount, currency, supportEmail, brandUrl } = opts;
 
-function formatCurrency(amount?: number | null, currency?: string | null) {
-  if (!amount || !currency) return "";
-  try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: currency.toUpperCase(),
-    }).format(amount / 100);
-  } catch {
-    return `${amount / 100} ${currency?.toUpperCase() ?? ""}`;
-  }
-}
+  const subject = `Your MuseMint receipt — ${productSummary}`;
+  const prettyAmount = `${amount.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} ${currency}`;
 
-export function welcomeEmailHTML(session: MinimalCheckoutSession) {
-  const name = session.customer_details?.name?.split(" ")[0] || "there";
-  const total = formatCurrency(session.amount_total, session.currency);
+  const text = [
+    `Thanks for your purchase from MuseMint!`,
+    ``,
+    `Items: ${productSummary}`,
+    `Total: ${prettyAmount}`,
+    ``,
+    `You can reach us at ${supportEmail} if you need help.`,
+    ``,
+    `— MuseMint`,
+  ].join("\n");
 
-  return `<!doctype html>
+  const html = `<!doctype html>
 <html>
-  <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#0b0e10; color:#eaeef2; padding:32px;">
-    <table width="100%" cellpadding="0" cellspacing="0" style="max-width:640px; margin:0 auto; background:#12161a; border-radius:12px; overflow:hidden;">
-      <tr><td style="padding:32px;">
-        <h1 style="margin:0 0 8px 0; font-size:24px;">Welcome to <span style="color:#ffd166;">MuseMint</span> ✨</h1>
-        <p style="margin:0 0 16px 0; opacity:.9;">Hi ${name}, thanks for your purchase${
-          total ? ` of <strong>${total}</strong>` : ""
-        }! Your workspace is being set up.</p>
-
-        <div style="margin:24px 0;">
-          <a href="https://ai.rstglobal.ca/dashboard" style="display:inline-block; background:#ffd166; color:#0b0e10; text-decoration:none; padding:12px 16px; border-radius:8px; font-weight:600;">
-            Open Dashboard
-          </a>
-        </div>
-
-        <p style="margin:16px 0 0 0; font-size:13px; opacity:.7;">
-          Questions? Just reply to this email or write us at hello@rstglobal.ca.
-        </p>
-      </td></tr>
+  <body style="margin:0;padding:0;background:#0b0f0e;color:#eae9e5;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0b0f0e;">
+      <tr>
+        <td align="center" style="padding:32px 16px;">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#121618;border:1px solid #1e2629;border-radius:16px;">
+            <tr>
+              <td style="padding:28px 28px 12px 28px;text-align:center;">
+                <div style="font-size:18px;line-height:24px;color:#eae9e5;">
+                  <span style="display:inline-block;padding:6px 10px;border:1px solid #2b3a3f;border-radius:999px;font-size:12px;letter-spacing:.08em;color:#9adbbf;">MuseMint</span>
+                </div>
+                <h1 style="margin:18px 0 8px 0;font-size:22px;line-height:30px;color:#eae9e5;">Thanks for your purchase!</h1>
+                <p style="margin:0 0 8px 0;color:#aeb5b8;">Here’s a quick summary of your order.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 28px 16px 28px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0f1315;border:1px solid #1e2629;border-radius:12px;">
+                  <tr>
+                    <td style="padding:16px 18px;">
+                      <div style="color:#eae9e5;font-weight:600;margin-bottom:6px;">${productSummary}</div>
+                      <div style="color:#9fb2b8;font-size:14px;">Total paid</div>
+                    </td>
+                    <td align="right" style="padding:16px 18px;">
+                      <div style="color:#ffd166;font-weight:700;">${prettyAmount}</div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:8px 28px 28px 28px;">
+                <p style="color:#aeb5b8;margin:0 0 16px 0;font-size:14px;">
+                  If you have any questions or need help, reply to this email or contact us at
+                  <a href="mailto:${supportEmail}" style="color:#9adbbf;text-decoration:none;">${supportEmail}</a>.
+                </p>
+                <div style="text-align:center;margin-top:8px;">
+                  <a href="${brandUrl}" style="display:inline-block;background:#ffd166;color:#0b0f0e;padding:10px 16px;border-radius:10px;font-weight:600;text-decoration:none;">Visit MuseMint</a>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:18px 28px 26px 28px;border-top:1px solid #1e2629;color:#6f7a80;font-size:12px;text-align:center;">
+                © ${new Date().getFullYear()} MuseMint · An RST Global venture
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
     </table>
   </body>
 </html>`;
-}
 
-export function welcomeEmailText(session: MinimalCheckoutSession) {
-  const name = session.customer_details?.name?.split(" ")[0] || "there";
-  const total = formatCurrency(session.amount_total, session.currency);
-  return [
-    `Welcome to MuseMint!`,
-    ``,
-    `Hi ${name}, thanks for your purchase${total ? ` of ${total}` : ""}.`,
-    `Your workspace is being set up.`,
-    ``,
-    `Open your dashboard: https://ai.rstglobal.ca/dashboard`,
-    ``,
-    `Need help? Reply here or email hello@rstglobal.ca`,
-  ].join("\n");
+  return { subject, html, text };
 }
