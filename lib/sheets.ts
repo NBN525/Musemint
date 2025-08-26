@@ -1,25 +1,30 @@
 // lib/sheets.ts
-export async function appendToSheet(args: {
-  table?: string;
-  row: Record<string, any>;
-}) {
-  const url = process.env.SHEETS_WEBHOOK_URL;
-  if (!url) return;
+// Sends a lightweight sale/log payload to your Google Apps Script (or any webhook).
+// Requires env var: SHEETS_WEBHOOK_URL
 
-  const payload = {
-    table: args.table || "Default",
-    ...args.row,
-  };
+type LogPayload = {
+  event: string;
+  mode: "test" | "live";
+  sessionId?: string | null;
+  customerEmail?: string | null;
+  amountTotal?: number | null;
+  currency?: string | null;
+  product?: string | null;
+  purchasedAt?: string;
+};
+
+export async function logSaleToSheets(payload: LogPayload) {
+  const url = process.env.SHEETS_WEBHOOK_URL;
+  if (!url) return; // no-op if you haven’t configured the webhook yet
 
   try {
     await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      // Don’t block the webhook on slow sheet calls
-      // (Vercel Node runtime keeps it simple; we still await so we can catch errors)
+      body: JSON.stringify(payload)
     });
-  } catch (e) {
-    console.error("Sheet append failed:", e);
+  } catch (err) {
+    // Don’t let logging failures crash your webhook
+    console.error("Sheets log failed:", (err as Error)?.message || err);
   }
 }
