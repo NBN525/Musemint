@@ -8,38 +8,43 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: "2024-06-20",
 });
 
-// Pick secret by Vercel environment
-function getWebhookSecret(): string {
-  // VERCEL_ENV is "production" | "preview" | "development"
-  const env = process.env.VERCEL_ENV || process.env.NODE_ENV || "development";
-  if (env === "production") {
-    const live = process.env.STRIPE_WEBHOOK_SECRET_LIVE;
-    if (!live) throw new Error("Missing STRIPE_WEBHOOK_SECRET_LIVE");
-    return live;
-  }
+// Verify using either live or test signing secret (whichever matches)
+function verifyEventWithAnySecret(raw: string, sig: string): Stripe.Event {
+  const live = process.env.STRIPE_WEBHOOK_SECRET_LIVE;
   const test = process.env.STRIPE_WEBHOOK_SECRET_TEST;
-  if (!test) throw new Error("Missing STRIPE_WEBHOOK_SECRET_TEST");
-  return test;
+
+  // Try live first if present
+  if (live) {
+    try {
+      return stripe.webhooks.constructEvent(raw, sig, live);
+    } catch {
+      /* fall through to try test */
+    }
+  }
+  if (test) {
+    return stripe.webhooks.constructEvent(raw, sig, test);
+  }
+
+  throw new Error(
+    "No webhook signing secrets configured. Add STRIPE_WEBHOOK_SECRET_LIVE and/or STRIPE_WEBHOOK_SECRET_TEST."
+  );
 }
 
-// GET helps avoid 405 when you visit the route in a browser
+// Optional GET so hitting this route in a browser doesn’t 405
 export async function GET() {
-  return NextResponse.json({ received: true }, { status: 200 });
+  return NextResponse.json({ ok: true }, { status: 200 });
 }
 
 export async function POST(req: NextRequest) {
   const signature = req.headers.get("stripe-signature") || "";
-  const secret = getWebhookSecret();
-
-  // Use raw body (text) for verification
   const rawBody = await req.text();
 
   let event: Stripe.Event;
   try {
-    event = stripe.webhooks.constructEvent(rawBody, signature, secret);
+    event = verifyEventWithAnySecret(rawBody, signature);
   } catch (err: any) {
     return NextResponse.json(
-      { error: `Invalid signature: ${err?.message || "unknown"}` },
+      { error: `Signature verification failed: ${err?.message || "unknown"}` },
       { status: 400 }
     );
   }
@@ -48,9 +53,10 @@ export async function POST(req: NextRequest) {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
-        // TODO: send email, deliver file, log to Sheets, etc.
+        // TODO: deliver file/email, log to Sheets, etc.
         break;
       }
+      // Add cases as needed
       default:
         break;
     }
