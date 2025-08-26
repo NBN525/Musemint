@@ -1,47 +1,72 @@
-import { NextResponse } from "next/server";
 import Stripe from "stripe";
-import { Resend } from "resend";
-import { welcomeEmailHTML, welcomeEmailText } from "../../../../lib/emailTemplates";
+import { NextRequest, NextResponse } from "next/server";
+
+// Ensure this runs on the Node runtime (not edge) so raw body works.
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-  apiVersion: "2025-07-30.basil",
+  apiVersion: "2024-06-20",
 });
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Helper: choose correct webhook secret by mode
+function getWebhookSecret(): string | undefined {
+  const mode = (process.env.STRIPE_WEBHOOK_MODE || "live").toLowerCase(); // "test" or "live"
+  return mode === "test"
+    ? process.env.STRIPE_WEBHOOK_SECRET_TEST
+    : process.env.STRIPE_WEBHOOK_SECRET;
+}
 
-export async function POST(req: Request) {
-  const body = await req.text();
-  const sig = req.headers.get("stripe-signature") as string;
+/** Optional GET so checking this route in a browser doesn’t 405 */
+export async function GET() {
+  return NextResponse.json({ received: true }, { status: 200 });
+}
+
+/** Stripe sends POST with a signed raw body */
+export async function POST(req: NextRequest) {
+  const signature = req.headers.get("stripe-signature") || "";
+  const webhookSecret = getWebhookSecret();
+
+  if (!webhookSecret) {
+    return NextResponse.json(
+      { error: "Webhook secret not configured" },
+      { status: 500 }
+    );
+  }
+
+  // IMPORTANT: use the raw text, not JSON-parsed body
+  const rawBody = await req.text();
 
   let event: Stripe.Event;
   try {
-    event = stripe.webhooks.constructEvent(
-      body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET as string
-    );
+    event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
   } catch (err: any) {
-    console.error("Webhook signature verification failed:", err.message);
-    return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+    return NextResponse.json(
+      { error: `Invalid signature: ${err?.message || "unknown"}` },
+      { status: 400 }
+    );
   }
 
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object as Stripe.Checkout.Session;
-    try {
-      if (session.customer_email) {
-        await resend.emails.send({
-          from: "MuseMint <noreply@rstglobal.ca>",
-          to: session.customer_email,
-          subject: "Welcome to MuseMint 🎉",
-          html: welcomeEmailHTML(session),
-          text: welcomeEmailText(session),
-        });
+  try {
+    // Handle events you care about
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        // TODO: your business logic here (log to Sheets, send email, etc.)
+        break;
       }
-      console.log("✅ Email queued for:", session.customer_email);
-    } catch (error) {
-      console.error("❌ Error sending email:", error);
+      // Add more cases as needed
+      default:
+        // no-op for unhandled events
+        break;
     }
+  } catch (err: any) {
+    // Your handler threw
+    return NextResponse.json(
+      { error: `Webhook handler error: ${err?.message || "unknown"}` },
+      { status: 500 }
+    );
   }
 
-  return NextResponse.json({ received: true });
+  return NextResponse.json({ received: true }, { status: 200 });
 }
