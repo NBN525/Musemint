@@ -1,41 +1,38 @@
-// app/checkout/page.tsx
 "use client";
 import { useState } from "react";
 
 export default function CheckoutPage() {
   const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-  const go = async () => {
+  const startCheckout = async () => {
     setLoading(true);
+    setErr(null);
     try {
-      const res = await fetch("/api/stripe/create-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ quantity: 1 }),
-      });
+      const res = await fetch("/api/checkout", { method: "POST" });
       const data = await res.json();
-      if (data?.url) window.location.href = data.url;
-      else alert("Could not start checkout.");
+      if (!res.ok) throw new Error(data?.error || "Checkout failed");
+      window.location.href = data.url;
     } catch (e: any) {
-      alert(e?.message ?? "Error starting checkout");
-    } finally {
+      setErr(e?.message || "Unexpected error");
       setLoading(false);
     }
   };
 
   return (
-    <main className="min-h-[70vh] flex items-center justify-center">
-      <div className="text-center space-y-4">
-        <h1 className="text-3xl font-semibold">Buy the MuseMint Planner</h1>
-        <p className="opacity-70">One-time purchase. Instant access.</p>
-        <button
-          onClick={go}
-          disabled={loading}
-          className="px-6 py-3 rounded-xl bg-yellow-400 text-black font-semibold disabled:opacity-50"
-        >
-          {loading ? "Redirecting…" : "Checkout"}
-        </button>
-      </div>
+    <main className="min-h-screen flex flex-col items-center justify-center px-6">
+      <h1 className="text-2xl font-semibold mb-4">Purchase — Ultimate Weekly Planner</h1>
+      <p className="text-white/80 mb-6">Secure checkout powered by Stripe.</p>
+
+      <button
+        onClick={startCheckout}
+        disabled={loading}
+        className="px-5 py-3 rounded-xl bg-brand-yellow text-black font-semibold hover:opacity-90 disabled:opacity-60"
+      >
+        {loading ? "Redirecting..." : "Buy Now"}
+      </button>
+
+      {err && <p className="text-red-400 mt-4">{err}</p>}
     </main>
   );
 }
