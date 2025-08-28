@@ -1,37 +1,29 @@
-// app/api/stripe/webhook/route.ts
+// /app/api/stripe/webhook/route.ts
 import Stripe from "stripe";
 import { NextRequest, NextResponse } from "next/server";
-import { Resend } from "resend";
 import { appendToSheet } from "@/lib/sheets";
-import { buildSaleEmail } from "@/lib/emailTemplates";
 
-// Ensure Node runtime for raw body
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: "2024-06-20",
 });
-const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Helper: choose the right webhook secret (test vs live)
 function getWebhookSecret(): string | undefined {
-  const mode = (process.env.STRIPE_WEBHOOK_MODE || "live").toLowerCase(); // "test" | "live"
+  const mode = (process.env.STRIPE_WEBHOOK_MODE || "live").toLowerCase();
   return mode === "test"
     ? process.env.STRIPE_WEBHOOK_SECRET_TEST
     : process.env.STRIPE_WEBHOOK_SECRET;
 }
 
-// Optional: quick ping so the route doesn’t 405 in a browser
 export async function GET() {
-  return NextResponse.json({ ok: true }, { status: 200 });
+  return NextResponse.json({ ok: true });
 }
 
-// Stripe sends POST with a signed RAW body
 export async function POST(req: NextRequest) {
   const signature = req.headers.get("stripe-signature") || "";
   const webhookSecret = getWebhookSecret();
-
   if (!webhookSecret) {
     return NextResponse.json(
       { error: "Webhook secret not configured" },
@@ -39,10 +31,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // IMPORTANT: use raw text body for signature verification
   const rawBody = await req.text();
-
   let event: Stripe.Event;
+
   try {
     event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
   } catch (err: any) {
@@ -53,85 +44,37 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    switch (event.type) {
-      case "checkout.session.completed": {
-        const session = event.data.object as Stripe.Checkout.Session;
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object as Stripe.Checkout.Session;
 
-        // Pull line items for product names/qty
-        const lineItems = await stripe.checkout.sessions.listLineItems(
-          session.id,
-          { limit: 50 }
-        );
+      const amount = (session.amount_total ?? 0) / 100;
+      const currency = (session.currency || "cad").toUpperCase();
+      const customer = session.customer_details?.email || "";
 
-        // Build a readable product summary
-        const products = lineItems.data.map((li) => {
-          const name =
-            li.description ||
-            (typeof li.price?.product === "string" ? li.price.product : "Item");
-          const qty = li.quantity ?? 1;
-          return `${name} × ${qty}`;
-        });
+      const row = {
+        timestamp: new Date().toISOString(),
+        source: "Stripe",
+        event: "checkout.session.completed",
+        amount: String(amount),
+        currency,
+        mode: (process.env.STRIPE_WEBHOOK_MODE || "live").toUpperCase(),
+        customer,
+      };
 
-        const productSummary =
-          products.length > 0 ? products.join(" • ") : "Unknown item(s)";
+      // Log to both sheets (no errors if one is missing)
+      await appendToSheet({
+        url: process.env.SHEETS_WEBHOOK_URL,
+        table: "RST_SMS_Log",
+        row,
+      });
 
-        // Amount & currency
-        const amountTotal = (session.amount_total ?? 0) / 100;
-        const currency = (session.currency || "usd").toUpperCase();
-
-        // Customer email
-        const customerEmail =
-          session.customer_details?.email ||
-          session.customer_email ||
-          "Unknown";
-
-        // Mode (test/live) shows in email + sheet
-        const mode = session.livemode ? "LIVE" : "TEST";
-
-        // 1) Email to hello@ (Resend)
-        const { subject, html } = buildSaleEmail({
-          brand: "MuseMint",
-          productSummary,
-          amount: amountTotal,
-          currency,
-          customerEmail,
-          sessionId: session.id,
-          mode,
-        });
-
-        // You can CC/forward later via Gmail rules (already set up)
-        await resend.emails.send({
-          from: "MuseMint <hello@rstglobal.ca>",
-          to: ["hello@rstglobal.ca"], // keep this as your canonical mailbox
-          subject,
-          html,
-        });
-
-        // 2) Log to Google Sheet (non-blocking but we still await for error catch)
-        await appendToSheet({
-          table2: "musemint-sales", // name whatever you like in your Apps Script
-          row: {
-            ts: new Date().toISOString(),
-            source: "stripe",
-            event: event.type,
-            mode,
-            email: customerEmail,
-            session_id: session.id,
-            products: productSummary,
-            amount: amountTotal,
-            currency,
-          },
-        });
-
-        break;
-      }
-
-      default:
-        // Ignore other event types for now
-        break;
+      await appendToSheet({
+        url: process.env.SHEETS_SALES_WEBHOOK_URL,
+        table: "MuseMint_Sales_Log",
+        row,
+      });
     }
   } catch (err: any) {
-    // Your handler threw – surface it so Stripe will retry if needed
     return NextResponse.json(
       { error: `Webhook handler error: ${err?.message || "unknown"}` },
       { status: 500 }
