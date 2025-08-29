@@ -1,11 +1,10 @@
 import Image from "next/image";
-import BuyButton from "./components/BuyButton";
 import LeadForm from "./components/LeadForm";
 
 export default function Home() {
   return (
     <main className="min-h-screen flex flex-col items-center justify-center px-6">
-      {/* Logo only (no duplicate wordmark) */}
+      {/* Logo */}
       <div className="mb-6">
         <Image
           src="/MuseMintLogo.png"
@@ -16,22 +15,27 @@ export default function Home() {
         />
       </div>
 
-      {/* Keep heading for SEO but hide visually (prevents ‘MuseMint’ twice) */}
+      {/* Keep heading for SEO but hide visually */}
       <h1 className="sr-only">MuseMint — smart tools & templates</h1>
 
-      <p className="mb-8 text-center text-sm md:text-base text-white/85">
-        Smart tools &amp; templates for digital planners and business growth —
-        by <span className="text-brand-teal font-medium">RST Global</span>.
+      <p className="mb-4 text-center text-sm md:text-base text-white/85">
+        Smart tools &amp; templates for digital planners and business growth — by{" "}
+        <span className="text-brand-teal font-medium">RST Global</span>.
+      </p>
+
+      {/* Product blurb */}
+      <p className="mb-6 text-center text-white/75">
+        <span className="font-medium">Supporter Pass ($1):</span> helps fund initial builds
+        and unlocks early updates. You’ll receive a receipt by email.
       </p>
 
       <div className="mb-10 flex gap-3 justify-center">
         <a
-          href="/dashboard"
-          className="px-4 py-2 rounded-xl border border-white/20 hover:border-white/40 transition"
+          href="/api/checkout" /* your existing checkout route */
+          className="px-4 py-2 rounded-xl bg-brand-yellow/90 hover:bg-brand-yellow text-black font-medium transition"
         >
-          Open Dashboard
+          Buy Supporter Pass — $1
         </a>
-        <BuyButton label="Buy Now" />
         <a
           href="mailto:hello@rstglobal.ca"
           className="px-4 py-2 rounded-xl border border-white/20 hover:border-white/40 transition"
