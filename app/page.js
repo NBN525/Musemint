@@ -1,4 +1,5 @@
 import Image from "next/image";
+import BuyButton from "./components/BuyButton";
 import LeadForm from "./components/LeadForm";
 
 export default function Home() {
@@ -26,10 +27,11 @@ export default function Home() {
       <div className="mb-10 flex gap-3 justify-center">
         <a
           href="/dashboard"
-          className="px-4 py-2 rounded-xl bg-brand-yellow/90 hover:bg-brand-yellow text-black font-medium transition"
+          className="px-4 py-2 rounded-xl border border-white/20 hover:border-white/40 transition"
         >
           Open Dashboard
         </a>
+        <BuyButton label="Buy Now" />
         <a
           href="mailto:hello@rstglobal.ca"
           className="px-4 py-2 rounded-xl border border-white/20 hover:border-white/40 transition"
