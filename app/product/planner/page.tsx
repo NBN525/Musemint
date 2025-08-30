@@ -6,10 +6,6 @@ export const metadata = {
   description: "Premium Notion/Sheets planner with KPI dashboards, budgets, goals, and review cadences. Instant download.",
 };
 
-import Footer from "../components/Footer"; // adjust path per page
-// ...
-<Footer />
-
 export default function Planner() {
   return (
     <main className="min-h-screen px-6 py-10 max-w-5xl mx-auto">
