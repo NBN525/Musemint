@@ -1,39 +1,47 @@
-"use client";
-import { useSearchParams } from "next/navigation";
+// app/rst/login/page.tsx
+import Image from "next/image";
 
-export default function LoginPage() {
-  const params = useSearchParams();
-  const returnTo = params.get("returnTo") || "/rst/dashboard";
+export const dynamic = "force-dynamic";
 
+export default function Login({
+  searchParams,
+}: {
+  searchParams?: { error?: string };
+}) {
+  const hasError = searchParams?.error === "1";
   return (
-    <main className="min-h-screen grid place-items-center p-6">
-      <form
-        method="POST"
-        action="/rst/login"
-        className="w-full max-w-sm space-y-4 rounded-xl border border-white/15 p-6"
-      >
-        <h1 className="text-lg font-semibold">RST Admin Login</h1>
-        <input type="hidden" name="returnTo" value={returnTo} />
-        <label className="block text-sm">
-          Password
-          <input
-            name="password"
-            type="password"
-            required
-            className="mt-1 w-full rounded-md bg-black/20 border border-white/15 p-2"
-            placeholder="Enter admin password"
-          />
-        </label>
-        <button
-          type="submit"
-          className="w-full rounded-md bg-brand-yellow text-black font-medium py-2"
-        >
-          Sign in
-        </button>
-        <p className="text-xs text-white/60">
-          Tip: set <code>DASHBOARD_PASSWORD</code> in Vercel env vars.
+    <main className="min-h-screen flex items-center justify-center px-6">
+      <div className="w-full max-w-sm rounded-2xl border border-white/10 p-6 bg-black/30 backdrop-blur">
+        <div className="flex justify-center mb-4">
+          <Image src="/MuseMintLogo.png" alt="MuseMint" width={72} height={72} />
+        </div>
+        <h1 className="text-xl font-semibold text-center mb-1">Admin login</h1>
+        <p className="text-sm text-white/60 text-center mb-6">
+          Enter the admin password to access the RST dashboard.
         </p>
-      </form>
+
+        {hasError && (
+          <div className="mb-4 text-sm text-red-300/90">
+            Incorrect password. Please try again.
+          </div>
+        )}
+
+        <form method="POST" action="/api/rst/login" className="space-y-3">
+          <input
+            type="password"
+            name="password"
+            placeholder="Admin password"
+            className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-2 outline-none"
+            required
+          />
+          <button
+            type="submit"
+            className="w-full rounded-xl bg-brand-yellow text-black font-medium py-2"
+          >
+            Sign in
+          </button>
+        </form>
+      </div>
     </main>
   );
 }
