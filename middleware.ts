@@ -1,40 +1,21 @@
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 
-const USER = process.env.ADMIN_USER || "";
-const PASS = process.env.ADMIN_PASS || "";
+export const config = {
+  matcher: ["/rst/:path*"], // protect everything under /rst/*
+};
 
-/** Basic Auth for /dashboard (and /admin if you add it later) */
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Only protect these paths
-  const protectedPaths = ["/dashboard", "/admin"];
-  const needsAuth = protectedPaths.some(p => pathname === p || pathname.startsWith(p + "/"));
-  if (!needsAuth) return NextResponse.next();
+  // allow the login route itself
+  if (pathname.startsWith("/rst/login")) return NextResponse.next();
 
-  const auth = req.headers.get("authorization") || "";
-  if (!auth.startsWith("Basic ")) {
-    return new NextResponse("Authentication required", {
-      status: 401,
-      headers: { "WWW-Authenticate": 'Basic realm="RST Global"' },
-    });
-  }
+  const cookie = req.cookies.get("rst_auth")?.value;
+  if (cookie === "ok") return NextResponse.next();
 
-  try {
-    const [, b64] = auth.split(" ");
-    const [user, pass] = atob(b64).split(":");
-    if (user === USER && pass === PASS) return NextResponse.next();
-  } catch {
-    /* fallthrough to 401 below */
-  }
-
-  return new NextResponse("Invalid credentials", {
-    status: 401,
-    headers: { "WWW-Authenticate": 'Basic realm="RST Global"' },
-  });
+  // no cookie → bounce to login with returnTo
+  const url = req.nextUrl.clone();
+  url.pathname = "/rst/login";
+  url.searchParams.set("returnTo", pathname);
+  return NextResponse.redirect(url);
 }
-
-export const config = {
-  matcher: ["/dashboard/:path*", "/dashboard", "/admin/:path*", "/admin"],
-};
