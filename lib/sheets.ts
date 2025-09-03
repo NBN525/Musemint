@@ -3,49 +3,51 @@ type SalesPayload = {
   event_type: string;
   email?: string;
   name?: string;
-  amount_total: number;
-  currency: string;
+  amount_total?: number;
+  currency?: string;
   payment_status?: string;
   session_id?: string;
   customer_id?: string;
   mode?: string;
   notes?: string;
-  [key: string]: any;
+  [k: string]: any;
 };
 
-async function postJson(url: string | undefined, payload: any, label: string) {
+async function postJson(url: string, payload: any) {
   if (!url) {
-    console.warn(`Sheets POST skipped: ${label} URL not set`);
-    return { ok: false as const, reason: "missing-url" as const };
+    console.warn("RST sheet not ok:", { ok: false, reason: "missing-url" });
+    return;
   }
-  try {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      // await so failures are visible in Vercel logs
-    });
-    if (!r.ok) {
-      const t = await r.text().catch(() => "");
-      console.error(`Sheets POST failed (${label}):`, r.status, t);
-      return { ok: false as const, reason: "http-failed" as const };
+  // tiny retry: 250ms, 750ms
+  const delays = [0, 250, 750];
+  let lastErr: unknown = null;
+
+  for (const d of delays) {
+    if (d) await new Promise(r => setTimeout(r, d));
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return;
+    } catch (e) {
+      lastErr = e;
+      console.error("POST to sheet failed (try)", e);
     }
-    return { ok: true as const };
-  } catch (e) {
-    console.error(`Sheets POST error (${label}):`, e);
-    return { ok: false as const, reason: "fetch-error" as const };
   }
+  console.error("POST to sheet failed (final):", lastErr);
 }
 
-/** Legacy/RST log */
+/** Old pipeline (generic append) */
 export async function appendToSheet(args: { table?: string; row: Record<string, any> }) {
-  const url = process.env.SHEETS_WEBHOOK_URL;
-  const payload = { table: args.table || "Default", ...args.row };
-  return postJson(url, payload, "RST");
+  const url = process.env.SHEETS_WEBHOOK_URL || "";
+  await postJson(url || "", { table: args.table || "Default", ...args.row });
 }
 
-/** MuseMint Sales Log (richer schema) */
+/** Dedicated sales log */
 export async function appendToSales(row: SalesPayload) {
-  const url = process.env.SHEETS_WEBHOOK_URL_SALES;
-  return postJson(url, row, "Sales");
+  const url = process.env.SHEETS_WEBHOOK_URL_SALES || "";
+  await postJson(url || "", row);
 }
