@@ -1,32 +1,33 @@
 // app/api/rst/login/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  const form = await req.formData();
-  const pass = (form.get("password") || "") as string;
-  const expected = process.env.RST_ADMIN_PASSWORD || "";
+  let body: any = {};
+  try { body = await req.json(); } catch { body = {}; }
 
-  if (!expected) {
-    return NextResponse.json({ error: "Password not configured" }, { status: 500 });
+  const supplied =
+    (body?.password ?? "") ||
+    new URL(req.url).searchParams.get("password") ||
+    req.headers.get("x-rst-password") ||
+    "";
+
+  const ok =
+    !!process.env.RST_ADMIN_PASSWORD &&
+    supplied === process.env.RST_ADMIN_PASSWORD;
+
+  if (!ok) {
+    return NextResponse.json({ error: "Invalid password" }, { status: 401 });
   }
 
-  if (pass !== expected) {
-    // Back to /rst/login with error flag
-    return NextResponse.redirect(new URL("/rst/login?error=1", req.url));
-  }
-
-  // Set an httpOnly auth cookie for 7 days
-  const res = NextResponse.redirect(new URL("/rst/dashboard", req.url));
-  res.cookies.set({
-    name: "rst_auth",
-    value: "ok",
+  const res = NextResponse.json({ ok: true });
+  res.cookies.set("rst_admin", "1", {
     httpOnly: true,
     secure: true,
-    sameSite: "strict",
+    sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 24 * 7,
+    maxAge: 60 * 60 * 8, // 8h
   });
   return res;
 }
