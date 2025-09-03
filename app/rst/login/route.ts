@@ -1,31 +1,38 @@
-// app/rst/login/route.ts (example pattern)
-// ...
-const attempts = new Map<string, { count: number; ts: number }>(); // per instance
-function blocked(ip: string) {
-  const now = Date.now();
-  const rec = attempts.get(ip);
-  if (!rec) return false;
-  // reset after 10 minutes
-  if (now - rec.ts > 10 * 60_000) { attempts.delete(ip); return false; }
-  return rec.count >= 8;
-}
-function hit(ip: string, ok: boolean) {
-  const now = Date.now();
-  const rec = attempts.get(ip) || { count: 0, ts: now };
-  if (!ok) {
-    rec.count += 1; rec.ts = now; attempts.set(ip, rec);
-  } else {
-    // successful login clears
-    attempts.delete(ip);
+// app/rst/login/route.ts
+import { NextResponse, NextRequest } from "next/server";
+
+export const runtime = "nodejs";
+
+export async function POST(req: NextRequest) {
+  // Accept password from JSON body, query, or header
+  let body: any = {};
+  try {
+    body = await req.json();
+  } catch {
+    body = {};
   }
+
+  const supplied =
+    (body?.password ?? "") ||
+    new URL(req.url).searchParams.get("password") ||
+    req.headers.get("x-rst-password") ||
+    "";
+
+  const ok = !!process.env.RST_ADMIN_PASSWORD &&
+             supplied === process.env.RST_ADMIN_PASSWORD;
+
+  if (!ok) {
+    return NextResponse.json({ error: "Invalid password" }, { status: 401 });
+  }
+
+  // Set an httpOnly cookie so /rst/* routes can be gated by middleware
+  const res = NextResponse.json({ ok: true });
+  res.cookies.set("rst_admin", "1", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 8, // 8 hours
+  });
+  return res;
 }
-
-// inside POST:
-const ip = (headers.get("x-forwarded-for") || "").split(",")[0] || "unknown";
-if (blocked(ip)) return NextResponse.json({ error: "Too many attempts" }, { status: 429 });
-
-// … check password …
-const ok = suppliedPassword === process.env.RST_ADMIN_PASSWORD;
-hit(ip, ok);
-if (!ok) return NextResponse.json({ error: "Invalid password" }, { status: 401 });
-// continue with setting cookie/session…
