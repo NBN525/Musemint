@@ -1,31 +1,20 @@
 // app/api/rst/login/route.ts
-import { NextResponse, NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
-export const runtime = "nodejs";
-
-export async function POST(req: NextRequest) {
-  let body: any = {};
-  try { body = await req.json(); } catch { body = {}; }
-
-  const supplied =
-    (body?.password ?? "") ||
-    new URL(req.url).searchParams.get("password") ||
-    req.headers.get("x-rst-password") ||
-    "";
-
-  const ok =
-    !!process.env.RST_ADMIN_PASSWORD &&
-    supplied === process.env.RST_ADMIN_PASSWORD;
+export async function POST(req: Request) {
+  const { password, next } = await req.json().catch(() => ({}));
+  const ok = typeof password === "string" && password === process.env.RST_ADMIN_PASSWORD;
 
   if (!ok) {
     return NextResponse.json({ error: "Invalid password" }, { status: 401 });
   }
 
-  const res = NextResponse.json({ ok: true });
+  const res = NextResponse.json({ ok: true, next: next || "/rst/dashboard" });
+  // Simple cookie to mark admin session; adjust attrs as you prefer
   res.cookies.set("rst_admin", "1", {
     httpOnly: true,
-    secure: true,
     sameSite: "lax",
+    secure: true,
     path: "/",
     maxAge: 60 * 60 * 8, // 8h
   });
