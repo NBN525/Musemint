@@ -1,57 +1,52 @@
 // app/rst/login/page.tsx
-"use client";
+import { cookies } from "next/headers";
+import Link from "next/link";
 
-import { useState } from "react";
+export default function AdminLoginPage() {
+  const cookieStore = cookies();
+  const isAdmin = cookieStore.get("rst_admin")?.value === "1";
 
-export default function AdminLogin() {
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setErr(null);
-    setLoading(true);
-    try {
-      const next = new URLSearchParams(window.location.search).get("next") || "/rst/dashboard";
-      const res = await fetch("/api/rst/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password, next }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j?.error || "Login failed");
-      }
-      const j = await res.json();
-      window.location.href = j.next || "/rst/dashboard";
-    } catch (e: any) {
-      setErr(e?.message || "Login failed");
-    } finally {
-      setLoading(false);
-    }
+  if (isAdmin) {
+    return (
+      <main className="min-h-screen grid place-items-center p-6 bg-[#0a0f12] text-white">
+        <div className="text-center space-y-4">
+          <p className="text-white/80">You’re already logged in.</p>
+          <Link
+            href="/rst/dashboard"
+            className="px-4 py-2 rounded-lg bg-brand-yellow text-black font-medium"
+          >
+            Go to Dashboard
+          </Link>
+        </div>
+      </main>
+    );
   }
 
+  // --- LOGIN FORM (your existing code goes here) ---
   return (
     <main className="min-h-screen flex items-center justify-center p-6 bg-[#0a0f12] text-white">
-      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 p-6 rounded-xl border border-white/10 bg-black/30">
-        <h1 className="text-lg font-semibold">Admin Login</h1>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 outline-none focus:border-white/30"
-          placeholder="Enter admin password"
-        />
-        {err && <p className="text-red-400 text-sm">{err}</p>}
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-lg bg-brand-yellow text-black font-medium py-2 disabled:opacity-60"
+      <div className="max-w-sm w-full space-y-6 bg-black/40 p-6 rounded-xl border border-white/10">
+        <h1 className="text-xl font-semibold text-center">Admin Login</h1>
+        <form
+          method="POST"
+          action="/api/rst/login"
+          className="space-y-4"
         >
-          {loading ? "Checking…" : "Sign in"}
-        </button>
-      </form>
+          <input
+            type="password"
+            name="password"
+            placeholder="Enter password"
+            className="w-full px-3 py-2 rounded-md bg-black/60 border border-white/20 focus:outline-none focus:border-brand-yellow"
+            required
+          />
+          <button
+            type="submit"
+            className="w-full py-2 rounded-md bg-brand-yellow text-black font-medium hover:bg-yellow-400 transition"
+          >
+            Log In
+          </button>
+        </form>
+      </div>
     </main>
   );
 }
