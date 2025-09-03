@@ -1,11 +1,11 @@
-import { MetadataRoute } from "next";
+// app/sitemap.ts
+import type { MetadataRoute } from "next";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const base = process.env.NEXT_PUBLIC_BASE_URL || "https://ai.rstglobal.ca";
+  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://ai.rstglobal.ca";
   return [
-    { url: `${base}/`, lastModified: new Date() },
-    { url: `${base}/success`, lastModified: new Date() },
-    { url: `${base}/cancel`, lastModified: new Date() },
-    { url: `${base}/rst/dashboard`, lastModified: new Date() },
+    { url: `${base}/`, lastModified: new Date(), changeFrequency: "weekly", priority: 1 },
+    { url: `${base}/dashboard`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.6 },
+    { url: `${base}/support`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.5 },
   ];
 }
