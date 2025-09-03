@@ -1,47 +1,57 @@
 // app/rst/login/page.tsx
-import Image from "next/image";
+"use client";
 
-export const dynamic = "force-dynamic";
+import { useState } from "react";
 
-export default function Login({
-  searchParams,
-}: {
-  searchParams?: { error?: string };
-}) {
-  const hasError = searchParams?.error === "1";
+export default function AdminLogin() {
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    setLoading(true);
+    try {
+      const next = new URLSearchParams(window.location.search).get("next") || "/rst/dashboard";
+      const res = await fetch("/api/rst/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password, next }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.error || "Login failed");
+      }
+      const j = await res.json();
+      window.location.href = j.next || "/rst/dashboard";
+    } catch (e: any) {
+      setErr(e?.message || "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <main className="min-h-screen flex items-center justify-center px-6">
-      <div className="w-full max-w-sm rounded-2xl border border-white/10 p-6 bg-black/30 backdrop-blur">
-        <div className="flex justify-center mb-4">
-          <Image src="/MuseMintLogo.png" alt="MuseMint" width={72} height={72} />
-        </div>
-        <h1 className="text-xl font-semibold text-center mb-1">Admin login</h1>
-        <p className="text-sm text-white/60 text-center mb-6">
-          Enter the admin password to access the RST dashboard.
-        </p>
-
-        {hasError && (
-          <div className="mb-4 text-sm text-red-300/90">
-            Incorrect password. Please try again.
-          </div>
-        )}
-
-        <form method="POST" action="/api/rst/login" className="space-y-3">
-          <input
-            type="password"
-            name="password"
-            placeholder="Admin password"
-            className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-2 outline-none"
-            required
-          />
-          <button
-            type="submit"
-            className="w-full rounded-xl bg-brand-yellow text-black font-medium py-2"
-          >
-            Sign in
-          </button>
-        </form>
-      </div>
+    <main className="min-h-screen flex items-center justify-center p-6 bg-[#0a0f12] text-white">
+      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 p-6 rounded-xl border border-white/10 bg-black/30">
+        <h1 className="text-lg font-semibold">Admin Login</h1>
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className="w-full rounded-lg bg-black/40 border border-white/10 px-3 py-2 outline-none focus:border-white/30"
+          placeholder="Enter admin password"
+        />
+        {err && <p className="text-red-400 text-sm">{err}</p>}
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full rounded-lg bg-brand-yellow text-black font-medium py-2 disabled:opacity-60"
+        >
+          {loading ? "Checking…" : "Sign in"}
+        </button>
+      </form>
     </main>
   );
 }
