@@ -1,53 +1,40 @@
-import Stripe from "stripe";
+// app/success/page.tsx
+"use client";
+
+import { useEffect } from "react";
 import Link from "next/link";
 
-export const dynamic = "force-dynamic";
-
-export default async function SuccessPage({
-  searchParams,
-}: {
-  searchParams: { session_id?: string }
-}) {
-  const sessionId = searchParams?.session_id;
-  const stripeKey = process.env.STRIPE_SECRET_KEY;
-  let amount_total: number | null = null;
-  let currency: string | null = null;
-  let customer_email: string | null = null;
-  let product: string | null = process.env.NEXT_PUBLIC_PRODUCT_NAME || "Your purchase";
-
-  if (sessionId && stripeKey) {
-    const stripe = new Stripe(stripeKey, { apiVersion: "2024-06-20" });
-    try {
-      const s = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["line_items.data.price.product"] });
-      amount_total = s.amount_total;
-      currency = s.currency?.toUpperCase() || null;
-      customer_email = (s.customer_details?.email || null);
-      const li = s.line_items?.data?.[0];
-      const prodObj = (li?.price?.product as any);
-      if (prodObj?.name) product = prodObj.name;
-    } catch {
-      // keep defaults
+export default function SuccessPage() {
+  useEffect(() => {
+    // GA4 event if gtag present
+    // value/currency are optional; include if you pass them via querystring
+    if (typeof window !== "undefined" && (window as any).gtag) {
+      (window as any).gtag("event", "purchase", {
+        value: typeof window !== "undefined" ? Number(new URLSearchParams(window.location.search).get("v") || 0) : 0,
+        currency: "CAD"
+      });
     }
-  }
-
-  const pretty = (amount_total && currency)
-    ? `${(amount_total / 100).toFixed(2)} ${currency}`
-    : null;
+  }, []);
 
   return (
-    <main className="min-h-screen p-6 flex flex-col items-center justify-center text-center">
-      <h1 className="text-2xl font-semibold mb-2">Payment received ✅</h1>
-      <p className="opacity-80 mb-6">
-        {product}{pretty ? ` • ${pretty}` : ""}{customer_email ? ` • ${customer_email}` : ""}
-      </p>
+    <main className="min-h-screen flex items-center justify-center px-6">
+      <div className="max-w-lg w-full rounded-2xl border border-white/10 bg-black/30 p-6 text-center">
+        <h1 className="text-xl font-semibold mb-2">Payment received 🎉</h1>
+        <p className="text-sm text-white/80">
+          Thanks for supporting MuseMint. Your receipt has been sent by email.
+          If you don’t see it, check spam or <Link className="underline" href="/support">contact us</Link>.
+        </p>
 
-      <div className="flex gap-3">
-        <Link href="/" className="rounded-md px-4 py-2 bg-yellow-400 text-black font-medium">
-          Back to site
-        </Link>
-        <Link href="/rst/dashboard" className="rounded-md px-4 py-2 border border-white/20">
-          RST Admin (protected)
-        </Link>
+        <div className="mt-4 text-xs text-white/60">
+          Refunds: If something went wrong, we’ll make it right—just open a ticket on the Support page.
+        </div>
+
+        <div className="mt-6 flex gap-3 justify-center">
+          <Link href="/dashboard" className="px-4 py-2 rounded-xl bg-brand-yellow/90 hover:bg-brand-yellow text-black font-medium">
+            Go to Dashboard
+          </Link>
+          <Link href="/" className="px-4 py-2 rounded-xl border border-white/20 hover:border-white/40">Home</Link>
+        </div>
       </div>
     </main>
   );
