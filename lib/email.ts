@@ -1,46 +1,48 @@
 // lib/email.ts
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resendApiKey = process.env.RESEND_API_KEY || "";
+const fromEmail = process.env.FROM_EMAIL || "hello@rstglobal.ca";
+const notifyEmail = process.env.SALES_NOTIFY_EMAIL || "hello@rstglobal.ca";
 
-// Basic shape the webhook will pass in
-export type SendArgs = {
-  to: string | string[];
-  subject: string;
-  html: string;
-  bcc?: string[];
-};
+const resend = new Resend(resendApiKey);
 
-// One canonical function the webhook expects
-export async function sendSaleEmail({ to, subject, html, bcc }: SendArgs) {
-  if (!process.env.RESEND_API_KEY) {
-    console.error("RESEND_API_KEY missing");
+export async function sendSaleEmail(subject: string, html: string) {
+  if (!resendApiKey) {
+    console.warn("Resend not configured; skipping sale email");
     return;
   }
-
-  // Normalize address list
-  const toList = Array.isArray(to) ? to : [to];
-
-  // Optional safety BCC while Gmail finishes MX/DKIM/DMARC, etc.
-  const bccList = bcc ?? (process.env.SALES_EMAIL_FALLBACK_BCC
-    ? [process.env.SALES_EMAIL_FALLBACK_BCC]
-    : []);
-
-  try {
-    const result = await resend.emails.send({
-      from: 'MuseMint <hello@rstglobal.ca>',
-      to: toList,
-      ...(bccList.length ? { bcc: bccList } : {}),
-      subject,
-      html,
-    });
-    console.log("Resend ok:", result?.id ?? result);
-    return result;
-  } catch (err) {
-    console.error("Resend send error:", err);
-    throw err;
-  }
+  await resend.emails.send({
+    from: fromEmail,
+    to: notifyEmail,
+    subject,
+    html,
+  });
 }
 
-// Back-compatible alias so other code can call sendEmail(...)
-export const sendEmail = sendSaleEmail;
+export async function sendSupportEmail(payload: {
+  name?: string;
+  email: string;
+  topic?: string;
+  message: string;
+}) {
+  if (!resendApiKey) {
+    console.warn("Resend not configured; skipping support email");
+    return;
+  }
+  const { name, email, topic, message } = payload;
+  const subj = `MuseMint support: ${topic || "General"}`;
+  const html = `
+    <h2>New Support Request</h2>
+    <p><b>Name:</b> ${name || "N/A"}</p>
+    <p><b>Email:</b> ${email}</p>
+    <p><b>Topic:</b> ${topic || "General"}</p>
+    <pre style="white-space:pre-wrap">${message}</pre>
+  `;
+  await resend.emails.send({
+    from: fromEmail,
+    to: notifyEmail,
+    subject: subj,
+    html,
+  });
+}
