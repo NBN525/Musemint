@@ -4,25 +4,27 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { postToSheets } from "@/lib/sheets";
 import { Resend } from "resend";
+import { getSheetWebhookTargets, postToSheets } from "@/lib/sheets";
 
-// --- Stripe client (server-side secret) ---
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: "2024-06-20",
 });
 
-// Pick test vs live webhook secret by env flag
 function getWebhookSecret(): string {
-  const mode = (process.env.STRIPE_WEBHOOK_MODE || "live").toLowerCase();
+  const mode = (process.env.STRIPE_WEBHOOK_MODE || "live").toLowerCase(); // "test" | "live"
   return mode === "test"
     ? (process.env.STRIPE_WEBHOOK_SECRET_TEST || "")
     : (process.env.STRIPE_WEBHOOK_SECRET || "");
 }
 
-// Optional Resend notifier
 const resendKey = process.env.RESEND_API_KEY || "";
 const resend = resendKey ? new Resend(resendKey) : null;
+const debug = (process.env.WEBHOOK_DEBUG || "") === "1";
+
+function logDebug(...args: any[]) {
+  if (debug) console.log("[stripe-webhook]", ...args);
+}
 
 export async function GET() {
   return NextResponse.json({ ok: true }, { status: 200 });
@@ -30,26 +32,22 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const signature = req.headers.get("stripe-signature") || "";
-  const webhookSecret = getWebhookSecret();
+  const secret = getWebhookSecret();
 
-  if (!webhookSecret) {
-    return NextResponse.json(
-      { error: "Webhook secret not configured" },
-      { status: 500 }
-    );
+  if (!secret) {
+    logDebug("Missing webhook secret");
+    return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 });
   }
 
-  // IMPORTANT: use raw text, not JSON
+  // Stripe needs raw text for signature verification
   const rawBody = await req.text();
 
   let event: Stripe.Event;
   try {
-    event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+    event = stripe.webhooks.constructEvent(rawBody, signature, secret);
   } catch (err: any) {
-    return NextResponse.json(
-      { error: `Invalid signature: ${err?.message || "unknown"}` },
-      { status: 400 }
-    );
+    logDebug("Invalid signature", err?.message);
+    return NextResponse.json({ error: `Invalid signature: ${err?.message || "unknown"}` }, { status: 400 });
   }
 
   try {
@@ -64,7 +62,6 @@ export async function POST(req: NextRequest) {
         const amount = (session.amount_total ?? 0) / 100;
         const currency = (session.currency ?? "usd").toUpperCase();
 
-        // Compose a single payload you can pivot in Sheets
         const payload = {
           source: "stripe",
           event: event.type,
@@ -77,41 +74,40 @@ export async function POST(req: NextRequest) {
           created_at: new Date().toISOString(),
         };
 
-        // Post to one or both sheet webhooks (set any that apply)
-        await postToSheets(
-          [
-            process.env.SHEET_WEBHOOK_URL_MUSEMINT, // MuseMint Sales Log
-            process.env.SHEET_WEBHOOK_URL_RST,      // RST Global log
-            process.env.SHEET_WEBHOOK_URL,          // Legacy/fallback
-          ],
-          payload
-        );
+        const targets = getSheetWebhookTargets();
+        logDebug("sheet targets:", targets);
 
-        // Optional internal alert email (won’t block response)
+        // Fire-and-forget side effects (don’t block Stripe)
+        await postToSheets(targets, payload);
+
         if (resend && process.env.SALES_ALERT_TO) {
-          await resend.emails.send({
-            from: `MuseMint <hello@rstglobal.ca>`,
-            to: [process.env.SALES_ALERT_TO],
-            subject: `✅ New order — ${amount.toFixed(2)} ${currency}`,
-            text: `Order ${session.id} from ${email}. Amount: ${amount.toFixed(
-              2
-            )} ${currency}.`,
-          });
+          try {
+            await resend.emails.send({
+              from: `MuseMint <hello@rstglobal.ca>`,
+              to: [process.env.SALES_ALERT_TO],
+              subject: `✅ New order — ${amount.toFixed(2)} ${currency}`,
+              text: `Order ${session.id} from ${email}. Amount: ${amount.toFixed(2)} ${currency}.`,
+            });
+            logDebug("Resend: sent");
+          } catch (e: any) {
+            logDebug("Resend error:", e?.message || e);
+          }
+        } else {
+          logDebug("Resend not configured or SALES_ALERT_TO missing");
         }
+
         break;
       }
 
-      // You can add more events here (e.g., invoice.paid, customer.created)
+      // Add more event handlers as needed (e.g., invoice.paid)
       default:
-        // no-op
+        logDebug("Unhandled event:", event.type);
         break;
     }
   } catch (err: any) {
-    // If your handler throws, keep the 500 so Stripe retries
-    return NextResponse.json(
-      { error: `Webhook handler error: ${err?.message || "unknown"}` },
-      { status: 500 }
-    );
+    logDebug("Handler error:", err?.message || err);
+    // Return 500 so Stripe retries if our handler breaks
+    return NextResponse.json({ error: `Webhook handler error` }, { status: 500 });
   }
 
   return NextResponse.json({ received: true }, { status: 200 });
