@@ -1,22 +1,14 @@
 // app/api/stripe/webhook/route.ts
-import Stripe from "stripe";
-import { NextRequest, NextResponse } from "next/server";
-import { sendSaleEmail } from "@/lib/email"; // path works if you have baseUrl='.'; otherwise use ../../../../lib/email
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-  apiVersion: "2024-06-20",
-});
+import { NextRequest, NextResponse } from "next/server";
+import type StripeNS from "stripe";
+import { stripe, getWebhookSecret } from "@/lib/stripe";
+import { logSaleToSheets } from "@/lib/sheets";
+import { Resend } from "resend";
 
-// choose the right secret
-function getWebhookSecret(): string | undefined {
-  const mode = (process.env.STRIPE_WEBHOOK_MODE || "live").toLowerCase();
-  return mode === "test"
-    ? process.env.STRIPE_WEBHOOK_SECRET_TEST
-    : process.env.STRIPE_WEBHOOK_SECRET;
-}
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function GET() {
   return NextResponse.json({ ok: true }, { status: 200 });
@@ -25,7 +17,6 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const signature = req.headers.get("stripe-signature") || "";
   const webhookSecret = getWebhookSecret();
-
   if (!webhookSecret) {
     return NextResponse.json(
       { error: "Webhook secret not configured" },
@@ -35,7 +26,7 @@ export async function POST(req: NextRequest) {
 
   const rawBody = await req.text();
 
-  let event: Stripe.Event;
+  let event: StripeNS.Event;
   try {
     event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
   } catch (err: any) {
@@ -48,63 +39,51 @@ export async function POST(req: NextRequest) {
   try {
     switch (event.type) {
       case "checkout.session.completed": {
-        const session = event.data.object as Stripe.Checkout.Session;
+        const session = event.data.object as StripeNS.Checkout.Session;
 
-        // --- Build email body ---
-        const amount =
-          typeof session.amount_total === "number"
-            ? (session.amount_total / 100).toFixed(2)
-            : "—";
+        const email =
+          session.customer_details?.email ||
+          session.customer_email ||
+          "unknown@example.com";
+        const amount = (session.amount_total ?? 0) / 100;
+        const currency = (session.currency ?? "usd").toUpperCase();
 
-        const currency = (session.currency || "cad").toUpperCase();
-        const customer = session.customer_details?.email || "Unknown";
-        const mode = session.mode?.toUpperCase() || "LIVE";
-
-        const html = `
-          <div style="font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:14px;line-height:1.6;color:#0f172a">
-            <h2 style="margin:0 0 8px;">New sale (Stripe Checkout)</h2>
-            <p><strong>Session:</strong> ${session.id}</p>
-            <p><strong>Amount:</strong> ${amount} ${currency}</p>
-            <p><strong>Customer:</strong> ${customer}</p>
-            <p><strong>Mode:</strong> ${mode}</p>
-            <p style="margin-top:16px;color:#475569">Logged to Google Sheet.</p>
-          </div>
-        `;
-
-        // send to your ops inbox; fallback BCC handled in lib/email.ts
-        await sendSaleEmail({
-          to: "hello@rstglobal.ca",
-          subject: `MuseMint sale: ${amount} ${currency}`,
-          html,
+        // Log to Google Sheets (MuseMint Sales Log or generic sheet)
+        await logSaleToSheets({
+          sheetUrl:
+            process.env.SHEET_WEBHOOK_URL_MUSEMINT ||
+            process.env.SHEET_WEBHOOK_URL ||
+            "",
+          payload: {
+            source: "stripe",
+            event: event.type,
+            email,
+            amount,
+            currency,
+            mode: session.mode,
+            id: session.id,
+            time: new Date().toISOString(),
+          },
         });
 
-        // also log to Sheets (both logs)
-        const { appendToSales, appendToSheet } = await import("@/lib/sheets");
-        await appendToSales({
-          event_type: "checkout.session.completed",
-          email: session.customer_details?.email || "",
-          name: session.customer_details?.name || "",
-          amount_total: session.amount_total ?? 0,
-          currency: session.currency || "cad",
-          payment_status: session.payment_status || "",
-          session_id: session.id,
-          customer_id: typeof session.customer === "string" ? session.customer : "",
-          mode: session.mode || "payment",
-        });
-
-        await appendToSheet({
-          table2: "stripe",
-          row: { event: "checkout.session.completed" },
-        });
-
+        // Optional internal notification via Resend
+        if (process.env.SALES_ALERT_TO) {
+          await resend.emails.send({
+            from: `MuseMint <hello@rstglobal.ca>`,
+            to: [process.env.SALES_ALERT_TO],
+            subject: `✅ New order — ${amount.toFixed(2)} ${currency}`,
+            text: `Order ${session.id} from ${email}. Amount: ${amount.toFixed(
+              2
+            )} ${currency}.`,
+          });
+        }
         break;
       }
       default:
-        // ignore others for now
+        // No-op for other events for now
         break;
     }
   } catch (err: any) {
-    console.error("Webhook handler error:", err);
     return NextResponse.json(
       { error: `Webhook handler error: ${err?.message || "unknown"}` },
       { status: 500 }
