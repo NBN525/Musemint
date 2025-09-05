@@ -1,50 +1,123 @@
 // app/page.tsx
-import Image from "next/image";
-import LeadForm from "./components/LeadForm";
+"use client";
+
+import { useState } from "react";
 
 export default function Home() {
+  const [loading, setLoading] = useState(false);
+  const [notifyLoading, setNotifyLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function startCheckout() {
+    try {
+      setLoading(true);
+      const res = await fetch("/api/stripe/create-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sku: "supporter", quantity: 1 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to start checkout");
+      window.location.href = data.url;
+    } catch (e: any) {
+      setMsg(e?.message || "Unable to start checkout");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitNotify(e: React.FormEvent) {
+    e.preventDefault();
+    setMsg(null);
+    if (!email) {
+      setMsg("Please enter an email.");
+      return;
+    }
+    try {
+      setNotifyLoading(true);
+      const res = await fetch("/api/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, name }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to subscribe");
+      setMsg("Thanks! You’re on the list.");
+      setEmail("");
+      setName("");
+    } catch (e: any) {
+      setMsg(e?.message || "Subscription failed");
+    } finally {
+      setNotifyLoading(false);
+    }
+  }
+
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center px-6">
-      <div className="mb-6">
-        <Image
-          src="/MuseMintLogo.png"
-          alt="MuseMint"
-          width={140}
-          height={140}
-          priority
-        />
-      </div>
+    <main className="min-h-screen bg-black text-white flex items-center justify-center p-6">
+      <div className="w-full max-w-2xl text-center space-y-8">
+        <div className="flex flex-col items-center space-y-3">
+          <div className="w-16 h-16 rounded-full grid place-items-center bg-[#0a0f12] border border-white/10">
+            <span className="text-2xl">🌱</span>
+          </div>
+          <h1 className="text-3xl font-semibold">MuseMint</h1>
+          <p className="text-white/70">
+            Smart tools & templates for digital planners and business growth — by{" "}
+            <a href="https://rstglobal.ca" className="underline">RST Global</a>.
+          </p>
+        </div>
 
-      <h1 className="sr-only">MuseMint — smart tools & templates</h1>
+        {/* Primary actions */}
+        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          <a
+            href="/rst/login"
+            className="inline-flex items-center justify-center rounded-xl px-5 py-3 bg-yellow-400 text-black font-medium hover:brightness-110 transition"
+          >
+            Open Dashboard
+          </a>
 
-      <p className="mb-8 text-center text-sm md:text-base text-white/85">
-        Smart tools &amp; templates for digital planners and business growth — by{" "}
-        <span className="text-emerald-300 font-medium">RST Global</span>.
-      </p>
+          <button
+            onClick={startCheckout}
+            disabled={loading}
+            className="inline-flex items-center justify-center rounded-xl px-5 py-3 border border-white/15 hover:bg-white/5 transition disabled:opacity-50"
+          >
+            {loading ? "Starting…" : "Buy Supporter Pass"}
+          </button>
+        </div>
 
-      <div className="mb-10 flex gap-3 justify-center">
-        <a
-          href="/dashboard"
-          className="px-4 py-2 rounded-xl bg-amber-300/90 hover:bg-amber-200 text-black font-medium transition"
+        {/* Notify form */}
+        <form
+          onSubmit={submitNotify}
+          className="mx-auto grid grid-cols-1 sm:grid-cols-[1fr,1fr,auto] gap-2 max-w-2xl"
         >
-          Open Dashboard
-        </a>
-        <a
-          href="/(store)/checkout"
-          className="px-4 py-2 rounded-xl border border-white/20 hover:border-white/40 transition"
-        >
-          Buy Supporter Pass ($1)
-        </a>
-      </div>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Your name (optional)"
+            className="rounded-xl bg-white/5 border border-white/10 px-4 py-3 outline-none focus:border-white/25"
+          />
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@email.com"
+            type="email"
+            className="rounded-xl bg-white/5 border border-white/10 px-4 py-3 outline-none focus:border-white/25"
+            required
+          />
+          <button
+            type="submit"
+            disabled={notifyLoading}
+            className="rounded-xl px-5 py-3 bg-yellow-400 text-black font-medium hover:brightness-110 transition disabled:opacity-50"
+          >
+            {notifyLoading ? "Adding…" : "Notify me"}
+          </button>
+        </form>
 
-      <p className="mb-2 text-lg font-medium">Get early access &amp; updates:</p>
-      <div className="w-full max-w-3xl">
-        <LeadForm />
-      </div>
+        {msg && <p className="text-sm text-white/80">{msg}</p>}
 
-      <p className="mt-8 text-xs text-white/50">
-        We respect your inbox. Unsubscribe anytime.
-      </p>
+        <p className="text-xs text-white/50">We respect your inbox. Unsubscribe anytime.</p>
+      </div>
     </main>
   );
 }
