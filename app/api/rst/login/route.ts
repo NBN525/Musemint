@@ -1,48 +1,40 @@
-// /app/api/rst/login/route.ts
+// app/api/rst/login/route.ts
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
-/**
- * POST /api/rst/login
- * Body: { password: string }
- * If password matches process.env.RST_DASHBOARD_PASSWORD, sets cookie `rst_admin=1`
- */
 export async function POST(req: Request) {
   try {
-    const { password } = await req.json().catch(() => ({} as any));
-    const expected = process.env.RST_DASHBOARD_PASSWORD?.trim();
+    const { password } = await req.json().catch(() => ({ password: "" }));
+    const adminPass = process.env.RST_ADMIN_PASSWORD?.trim() || "";
 
-    if (!expected) {
+    if (!adminPass) {
       return NextResponse.json(
-        { ok: false, error: "Server not configured: RST_DASHBOARD_PASSWORD is missing." },
+        { error: "Server misconfigured: RST_ADMIN_PASSWORD is not set." },
         { status: 500 }
       );
     }
 
-    if (!password || password !== expected) {
-      // short, generic error (don’t leak policy)
-      return NextResponse.json({ ok: false, error: "Invalid credentials." }, { status: 401 });
+    const ok = typeof password === "string" && password === adminPass;
+    if (!ok) {
+      return NextResponse.json({ error: "Invalid password" }, { status: 401 });
     }
 
-    // Create secure admin cookie
-    const res = NextResponse.json({ ok: true });
-    res.cookies.set({
+    // Set a simple session cookie (1 day). You can harden later with JWT if you like.
+    cookies().set({
       name: "rst_admin",
-      value: "1",
+      value: "ok",
       httpOnly: true,
-      secure: true,           // always true on Vercel (HTTPS)
       sameSite: "lax",
+      secure: true,
       path: "/",
-      maxAge: 60 * 60 * 8,    // 8 hours
+      maxAge: 60 * 60 * 24,
     });
 
-    return res;
-  } catch (err) {
-    return NextResponse.json(
-      { ok: false, error: "Unexpected server error." },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    console.error("RST login error:", e);
+    return NextResponse.json({ error: "Unexpected error" }, { status: 500 });
   }
 }
