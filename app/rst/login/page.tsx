@@ -1,52 +1,61 @@
 // app/rst/login/page.tsx
-import { cookies } from "next/headers";
-import Link from "next/link";
+"use client";
 
-export default function AdminLoginPage() {
-  const cookieStore = cookies();
-  const isAdmin = cookieStore.get("rst_admin")?.value === "1";
+import { useState } from "react";
 
-  if (isAdmin) {
-    return (
-      <main className="min-h-screen grid place-items-center p-6 bg-[#0a0f12] text-white">
-        <div className="text-center space-y-4">
-          <p className="text-white/80">You’re already logged in.</p>
-          <Link
-            href="/rst/dashboard"
-            className="px-4 py-2 rounded-lg bg-brand-yellow text-black font-medium"
-          >
-            Go to Dashboard
-          </Link>
-        </div>
-      </main>
-    );
-  }
+export default function LoginPage() {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
 
-  // --- LOGIN FORM (your existing code goes here) ---
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+
+    try {
+      const res = await fetch("/api/rst/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+
+      if (res.ok) {
+        window.location.href = "/rst/dashboard";
+      } else {
+        const data = await res.json();
+        setError(data.error || "Login failed");
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Unexpected error, please try again.");
+    }
+  };
+
   return (
-    <main className="min-h-screen flex items-center justify-center p-6 bg-[#0a0f12] text-white">
-      <div className="max-w-sm w-full space-y-6 bg-black/40 p-6 rounded-xl border border-white/10">
-        <h1 className="text-xl font-semibold text-center">Admin Login</h1>
-        <form
-          method="POST"
-          action="/api/rst/login"
-          className="space-y-4"
+    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white p-6 rounded shadow-md w-80"
+      >
+        <h1 className="text-xl font-semibold mb-4">RST Admin Login</h1>
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Enter password"
+          className="w-full border p-2 rounded mb-3"
+        />
+        {error && (
+          <p className="text-red-600 text-sm mb-2">
+            {error}
+          </p>
+        )}
+        <button
+          type="submit"
+          className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
         >
-          <input
-            type="password"
-            name="password"
-            placeholder="Enter password"
-            className="w-full px-3 py-2 rounded-md bg-black/60 border border-white/20 focus:outline-none focus:border-brand-yellow"
-            required
-          />
-          <button
-            type="submit"
-            className="w-full py-2 rounded-md bg-brand-yellow text-black font-medium hover:bg-yellow-400 transition"
-          >
-            Log In
-          </button>
-        </form>
-      </div>
-    </main>
+          Login
+        </button>
+      </form>
+    </div>
   );
 }
