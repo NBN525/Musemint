@@ -1,9 +1,9 @@
 // app/layout.tsx
-import './globals.css'; // keep if you have it; remove if not
+import "./globals.css";
 
 export const metadata = {
-  title: 'MuseMint / RST Global',
-  description: 'RST Global apps and dashboards',
+  title: "RST Global",
+  description: "Internal tools & dashboards",
 };
 
 export default function RootLayout({
