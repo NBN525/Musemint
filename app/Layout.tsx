@@ -1,10 +1,9 @@
 // app/layout.tsx
-import "./globals.css";
-import type { Metadata } from "next";
+import './globals.css'; // keep if you have it; remove if not
 
-export const metadata: Metadata = {
-  title: "MuseMint — by RST Global",
-  description: "Smart tools & templates by RST Global.",
+export const metadata = {
+  title: 'MuseMint / RST Global',
+  description: 'RST Global apps and dashboards',
 };
 
 export default function RootLayout({
@@ -14,7 +13,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="bg-black text-white">{children}</body>
+      <body>{children}</body>
     </html>
   );
 }
