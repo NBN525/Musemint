@@ -1,61 +1,44 @@
-// app/success/page.tsx
-import Stripe from "stripe";
 import Link from "next/link";
-import { PRODUCT_NAME } from "@/lib/config";
 
-export const dynamic = "force-dynamic";
+export const metadata = {
+  title: "Payment received — MuseMint",
+};
 
-function getStripe() {
-  const key = process.env.STRIPE_SECRET_KEY_LIVE || process.env.STRIPE_SECRET_KEY;
-  if (!key) throw new Error("Missing Stripe secret key");
-  return new Stripe(key, { apiVersion: "2023-10-16" });
-}
-
-export default async function SuccessPage({
-  searchParams,
-}: {
-  searchParams: { session_id?: string };
-}) {
-  const stripe = getStripe();
-  const sid = searchParams?.session_id;
-
-  let email: string | undefined;
-  let amountLabel = "";
-
-  if (sid) {
-    const session = await stripe.checkout.sessions.retrieve(sid, {
-      expand: ["customer_details", "line_items.data.price.product"],
-    });
-    email = session.customer_details?.email || undefined;
-
-    const amount = (session.amount_total ?? 0) / 100;
-    const currency = (session.currency || "cad").toUpperCase();
-    amountLabel = `${currency} ${amount.toFixed(2)}`;
-  }
-
+export default function SuccessPage() {
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
-      <div className="w-full max-w-lg space-y-6 text-center">
-        <h1 className="text-3xl font-bold">Payment received 🎉</h1>
-        <p className="text-zinc-400">
-          Thanks for supporting <span className="font-semibold">{PRODUCT_NAME}</span>.
+    <main className="min-h-screen flex items-center justify-center px-6">
+      <div className="max-w-2xl w-full rounded-2xl border border-white/10 bg-white/5 p-8">
+        <h1 className="text-2xl md:text-3xl font-semibold mb-3">
+          ✅ Payment received — thank you!
+        </h1>
+        <p className="text-white/85 mb-6">
+          You’ll receive a receipt via email shortly. If you don’t see it,
+          check spam and mark <span className="font-mono">hello@rstglobal.ca</span> as safe.
+          We’ve also logged your purchase for support and future updates.
         </p>
-        {amountLabel && <p className="text-lg">Amount: {amountLabel}</p>}
-        {email && <p className="text-sm text-zinc-400">Receipt sent to: {email}</p>}
 
-        <div className="flex gap-3 justify-center">
+        <div className="rounded-xl bg-white/5 border border-white/10 p-5 mb-6">
+          <h2 className="font-medium mb-2">What happens next?</h2>
+          <ul className="list-disc ml-5 space-y-1 text-white/85 text-sm">
+            <li>We’ll send your **download / access instructions** by email.</li>
+            <li>You’ll get **free updates** for the MuseMint v1 branch.</li>
+            <li>Need help? Reply to the receipt or email <span className="font-mono">hello@rstglobal.ca</span>.</li>
+          </ul>
+        </div>
+
+        <div className="flex gap-3">
           <Link
             href="/"
-            className="rounded-lg bg-yellow-400 text-black px-4 py-2 font-semibold hover:opacity-90"
+            className="px-4 py-2 rounded-xl bg-brand-yellow text-black font-semibold hover:opacity-90"
           >
-            Home
+            Back to site
           </Link>
-          <Link
-            href="/rst/dashboard"
-            className="rounded-lg border border-zinc-600 px-4 py-2 hover:bg-zinc-800"
+          <a
+            href="mailto:hello@rstglobal.ca?subject=MuseMint%20Purchase%20Support"
+            className="px-4 py-2 rounded-xl border border-white/20 hover:border-white/40"
           >
-            Go to Dashboard
-          </Link>
+            Contact support
+          </a>
         </div>
       </div>
     </main>
