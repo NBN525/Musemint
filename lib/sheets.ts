@@ -1,49 +1,53 @@
 // lib/sheets.ts
 /**
- * Thin wrappers for posting JSON rows into your Google Apps Script webhooks.
- * These exports match legacy names used elsewhere in the repo.
+ * Posts sale events to your Google Apps Script webhooks (MuseMint + RST Global).
+ * Uses robust retry + clear payload for easy sheet appending.
  */
 
-export type SalesPayload = {
-  event_type: string;
-  email?: string;
-  name?: string;
-  amount_total?: number;
+type SaleLog = {
+  time: string;              // ISO timestamp
+  source: string;            // "stripe"
+  mode: "live" | "test";
+  email: string;
+  name?: string | null;
+  product: string;
+  amount?: number;           // cents
   currency?: string;
-  payment_status?: string;
-  session_id?: string;
-  customer_id?: string;
-  notes?: string;
-  [key: string]: any;
+  sessionId?: string;
+  receiptUrl?: string | null;
 };
 
-async function postJson(url: string | undefined, payload: any) {
-  if (!url) return;
-  try {
-    await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  } catch (e) {
-    console.error("POST to sheet failed:", e);
+const MUSEMINT_URL = process.env.SHEETS_MUSEMINT_URL || process.env.SHEETS_WEBHOOK_URL; // keep backward compat
+const RST_URL = process.env.SHEETS_RST_URL || process.env.SHEETS_WEBHOOK_URL_RST;
+
+async function postJson(url: string, body: unknown) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    // Most Apps Script webapps accept JSON; if yours expects form-encoded, we can switch.
+    body: JSON.stringify(body),
+    // Avoid long hangs
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Sheets POST ${url} failed: ${res.status} ${text}`);
   }
+  return res;
 }
 
-/**
- * Legacy generic appender. Many old callers expect:
- *   appendToSheet({ table: "Some Tab", row: { ... } })
- */
-export async function appendToSheet(args: { table?: string; row: Record<string, any> }) {
-  const url = process.env.SHEETS_WEBHOOK_URL;
-  await postJson(url, { table: args.table || "Default", ...args.row });
+async function withRetry<T>(fn: () => Promise<T>, attempts = 3, delayMs = 600) {
+  let lastErr: any;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr;
 }
 
-/**
- * Legacy “sales” convenience. Old code calls appendToSales(row)
- * and expects it to hit the same webhook.
- */
-export async function appendToSales(row: SalesPayload) {
-  const url = process.env.SHEETS_WEBHOOK_URL;
-  await postJson(url, row);
-}
+/** Log to MuseMint Sales Log (if URL set) */
+export async function logMuseMintSale(entry:
