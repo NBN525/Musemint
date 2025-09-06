@@ -1,12 +1,14 @@
-// lib/config.ts
-export const PRODUCT_NAME =
-  process.env.NEXT_PUBLIC_PRODUCT_NAME || "MuseMint Supporter Test";
-
-export const PRODUCT_PRICE =
-  process.env.NEXT_PUBLIC_PRODUCT_PRICE || "1.00";
-
-export const PRODUCT_CURRENCY =
-  process.env.NEXT_PUBLIC_PRODUCT_CURRENCY || "CAD";
-
-export const SITE_URL =
-  process.env.SITE_URL || "http://localhost:3000";
+// app/lib/config.ts
+export const PRODUCT = {
+  name: process.env.PRODUCT_NAME || "MuseMint Planner Pro",
+  short: process.env.PRODUCT_SHORT || "Pro planner + dashboard bundle",
+  desc:
+    process.env.PRODUCT_DESC ||
+    "A polished, plug-and-play planning suite: weekly/monthly planners, goals, habit & finance trackers, plus a clean web dashboard and priority support.",
+  bullets: (process.env.PRODUCT_BULLETS ||
+    "Weekly & monthly planners;Goals + habit tracking;Finance & expenses dashboard;Export to PDF/Sheets;Priority email support").split(";"),
+  priceNote:
+    process.env.PRICE_NOTE ||
+    "Intro special: $1 test purchase today, full license delivered instantly.",
+  badge: process.env.PRODUCT_BADGE || "Instant download & updates",
+};
