@@ -1,115 +1,152 @@
-// app/api/stripe/webhook/route.ts
-import Stripe from 'stripe';
-import { NextResponse } from 'next/server';
-import { appendToSheet, appendToSales } from '@/lib/sheets';
-import { sendSaleEmail } from '@/lib/email';
+/* app/api/stripe/webhook/route.ts */
+import { NextRequest, NextResponse } from "next/server";
+import Stripe from "stripe";
 
-export const runtime = 'nodejs'; // Stripe SDK needs Node (not Edge)
+export const runtime = "nodejs";
 
-// ---- Stripe client ----
-const STRIPE_KEY = process.env.STRIPE_SECRET_KEY || '';
-const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
-
-const stripe = new Stripe(STRIPE_KEY, {
-  apiVersion: '2024-06-20',
-});
-
-type Json = Record<string, any>;
-
-// Optional: quick GET for sanity checks
-export async function GET() {
-  return NextResponse.json({ ok: true, message: 'Stripe webhook endpoint' });
+function getStripe() {
+  const key = process.env.STRIPE_SECRET_KEY_LIVE || process.env.STRIPE_SECRET_KEY;
+  if (!key) throw new Error("Missing STRIPE secret key");
+  return new Stripe(key, { apiVersion: "2023-10-16" });
 }
 
-// ---- Main webhook ----
-export async function POST(req: Request) {
-  // Stripe sends a raw body; do NOT use await req.json()
-  const sig = req.headers.get('stripe-signature') ?? '';
-  const rawBody = await req.text();
+async function postJson(url: string | undefined, payload: any) {
+  if (!url) return { ok: false, reason: "missing-url" };
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      // don’t throw on non-200; we want to log it
+    });
+    const ok = r.ok;
+    const text = await r.text().catch(() => "");
+    return { ok, status: r.status, body: text?.slice(0, 3000) };
+  } catch (e: any) {
+    return { ok: false, reason: e?.message || "fetch-error" };
+  }
+}
+
+async function sendEmail(payload: {
+  from: string;
+  to: string;
+  subject: string;
+  html: string;
+}) {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return { ok: false, reason: "missing-resend-key" };
+  try {
+    const r = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload), // subject MUST be a plain string
+    });
+    const ok = r.ok;
+    const text = await r.text().catch(() => "");
+    return { ok, status: r.status, body: text?.slice(0, 3000) };
+  } catch (e: any) {
+    return { ok: false, reason: e?.message || "resend-error" };
+  }
+}
+
+export async function POST(req: NextRequest) {
+  const stripe = getStripe();
+  const sig = req.headers.get("stripe-signature") || "";
+  const whSecret =
+    process.env.STRIPE_WEBHOOK_SECRET_LIVE || process.env.STRIPE_WEBHOOK_SECRET;
+
+  if (!whSecret) {
+    console.error("WEBHOOK: missing signing secret");
+    return NextResponse.json({ ok: false, reason: "missing-signing-secret" }, { status: 500 });
+  }
 
   let event: Stripe.Event;
-
   try {
-    event = stripe.webhooks.constructEvent(rawBody, sig, WEBHOOK_SECRET);
+    const raw = await req.text();
+    event = stripe.webhooks.constructEvent(raw, sig, whSecret);
   } catch (err: any) {
-    console.error('❌ Invalid webhook signature', err?.message || err);
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
+    console.error("WEBHOOK: signature verify failed:", err?.message);
+    // Return 400 so Stripe retries (don’t 200 on bad signature)
+    return new NextResponse(`Webhook Error: ${err?.message || "bad-signature"}`, { status: 400 });
   }
 
-  // Handle supported events
-  switch (event.type) {
-    case 'checkout.session.completed': {
-      const session = event.data.object as Stripe.Checkout.Session;
+  console.log("WEBHOOK: event.type =", event.type);
 
-      const amount_total = session.amount_total ?? 0; // cents
-      const currency = (session.currency ?? 'cad').toLowerCase();
-      const email = session.customer_details?.email ?? '';
-      const name = session.customer_details?.name ?? '';
-      const session_id = session.id;
-      const customer_id =
-        typeof session.customer === 'string'
-          ? session.customer
-          : session.customer?.id ?? '';
-      const mode = event.livemode ? 'LIVE' : 'TEST';
-      const payment_status = session.payment_status ?? '';
-
-      // 1) Log lightweight line to your general RST sheet (optional)
-      try {
-        const rstRow: Json = {
-          ts: new Date().toISOString(),
-          source: 'stripe',
-          event: event.type,
-          note: 'checkout.session.completed',
-        };
-        await appendToSheet({ table: 'rst_global', row: rstRow });
-      } catch (e) {
-        console.warn('RST sheet log failed:', e);
-      }
-
-      // 2) Log full sale to the dedicated MuseMint Sales sheet
-      try {
-        await appendToSales({
-          event_type: event.type,
-          email,
-          name,
-          amount_total,
-          currency,
-          payment_status,
-          mode,
-          session_id,
-          customer_id,
-          notes: 'Stripe Checkout',
-        });
-      } catch (e) {
-        console.warn('Sales sheet log failed:', e);
-      }
-
-      // 3) Send alert email via Resend
-      try {
-        const to = process.env.SALES_ALERT_TO || 'hello@rstglobal.ca';
-        const emailRes = await sendSaleEmail({
-          to,
-          amountTotalCents: amount_total,
-          currency,
-          sessionId: session_id,
-          customerEmail: email || undefined,
-          mode: mode as 'LIVE' | 'TEST',
-        });
-        if (!emailRes.ok) {
-          console.warn('Email send failed:', emailRes);
-        }
-      } catch (e) {
-        console.warn('Email exception:', e);
-      }
-
-      return NextResponse.json({ received: true });
-    }
-
-    // (Optional) add more cases you care about:
-    // case 'payment_intent.succeeded': ...
-    // case 'invoice.payment_succeeded': ...
-    default:
-      // Acknowledge unhandled events to stop retries
-      return NextResponse.json({ received: true });
+  // Only handle checkout.session.completed
+  if (event.type !== "checkout.session.completed") {
+    return NextResponse.json({ ok: true, reason: "ignored-type", type: event.type });
   }
+
+  const session = event.data.object as Stripe.Checkout.Session;
+
+  const amount_total = (session.amount_total ?? 0) / 100;
+  const currency = session.currency?.toUpperCase() || "USD";
+  const email = (session.customer_details?.email || session.customer_email || "").toString();
+  const name = session.customer_details?.name || "";
+  const payment_status = session.payment_status || "";
+  const mode = session.mode || "";
+  const session_id = session.id;
+  const customer_id = typeof session.customer === "string" ? session.customer : session.customer?.id || "";
+
+  // Guard: only log/signal paid sessions
+  if (payment_status !== "paid") {
+    console.log("WEBHOOK: skipping, payment_status:", payment_status);
+    return NextResponse.json({ ok: true, reason: "unpaid" });
+  }
+
+  // 1) Sheets (generic)
+  const sheetsPayload = {
+    source: "stripe",
+    event_type: event.type,
+    email,
+    name,
+    amount_total,
+    currency,
+    payment_status,
+    mode,
+    session_id,
+    customer_id,
+    ts: new Date().toISOString(),
+  };
+  const sheetsResult = await postJson(process.env.SHEETS_WEBHOOK_URL, sheetsPayload);
+  console.log("WEBHOOK: sheets generic ->", sheetsResult);
+
+  // 2) Sheets (sales log if provided)
+  const salesResult = await postJson(process.env.SHEETS_WEBHOOK_URL_SALES, sheetsPayload);
+  console.log("WEBHOOK: sheets sales ->", salesResult);
+
+  // 3) Email (Resend) — send to your team inbox
+  const from = process.env.MAIL_FROM || "MuseMint <hello@rstglobal.ca>";
+  const to = process.env.MAIL_TO || "hello@rstglobal.ca";
+  const subject = `MuseMint sale: ${amount_total.toFixed(2)} ${currency}`; // PLAIN STRING
+  const emailResult = await sendEmail({
+    from,
+    to,
+    subject,
+    html: `
+      <div style="font-family:system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif">
+        <h2>New sale (Stripe Checkout)</h2>
+        <p><b>Amount:</b> ${amount_total.toFixed(2)} ${currency}<br/>
+           <b>Customer:</b> ${email || "(unknown)"}<br/>
+           <b>Mode:</b> ${mode} &nbsp; <b>Status:</b> ${payment_status}<br/>
+           <b>Session:</b> ${session_id}
+        </p>
+        <p>Logged to Google Sheet.</p>
+      </div>
+    `,
+  });
+  console.log("WEBHOOK: resend ->", emailResult);
+
+  // Final response with a compact summary (helps in Stripe logs)
+  return NextResponse.json({
+    ok: true,
+    did: {
+      sheet: sheetsResult.ok,
+      sales: salesResult.ok,
+      email: emailResult.ok,
+    },
+  });
 }
