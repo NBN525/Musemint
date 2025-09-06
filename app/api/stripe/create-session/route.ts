@@ -1,12 +1,12 @@
 // app/api/stripe/create-session/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import { SITE_URL } from "@/lib/config";
 
 export const runtime = "nodejs";
 
 function getStripe() {
-  const key =
-    process.env.STRIPE_SECRET_KEY_LIVE || process.env.STRIPE_SECRET_KEY;
+  const key = process.env.STRIPE_SECRET_KEY_LIVE || process.env.STRIPE_SECRET_KEY;
   if (!key) throw new Error("Missing Stripe secret key");
   return new Stripe(key, { apiVersion: "2023-10-16" });
 }
@@ -24,13 +24,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const baseUrl = process.env.SITE_URL || "http://localhost:3000";
-
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: [{ price: priceId, quantity }],
-      success_url: `${baseUrl}/store/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${baseUrl}/store/cancel`,
+      success_url: `${SITE_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${SITE_URL}/cancel`,
       customer_creation: "if_required",
       allow_promotion_codes: true,
       automatic_tax: { enabled: false },
