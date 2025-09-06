@@ -1,36 +1,49 @@
 // lib/sheets.ts
-export type Json = Record<string, unknown>;
+/**
+ * Thin wrappers for posting JSON rows into your Google Apps Script webhooks.
+ * These exports match legacy names used elsewhere in the repo.
+ */
 
-/** Collect all possible sheet webhook env vars, de-duped */
-export function getSheetWebhookTargets(): string[] {
-  const candidates = [
-    process.env.SHEET_WEBHOOK_URL_MUSEMINT,
-    process.env.SHEET_WEBHOOK_URL_RST,
-    process.env.SHEET_WEBHOOK_URL,    // legacy
-    process.env.SHEETS_WEBHOOK_URL,   // common typo/alt
-    process.env.SHEET_WEBHOOK,        // safety net
-  ];
-  const uniq = new Set<string>();
-  for (const c of candidates) {
-    if (c && typeof c === "string" && c.startsWith("http")) uniq.add(c.trim());
+export type SalesPayload = {
+  event_type: string;
+  email?: string;
+  name?: string;
+  amount_total?: number;
+  currency?: string;
+  payment_status?: string;
+  session_id?: string;
+  customer_id?: string;
+  notes?: string;
+  [key: string]: any;
+};
+
+async function postJson(url: string | undefined, payload: any) {
+  if (!url) return;
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    console.error("POST to sheet failed:", e);
   }
-  return Array.from(uniq);
 }
 
 /**
- * Post JSON payload to all targets (non-blocking between them).
- * Any failure is swallowed (Promise.allSettled), so Stripe isn’t affected.
+ * Legacy generic appender. Many old callers expect:
+ *   appendToSheet({ table: "Some Tab", row: { ... } })
  */
-export async function postToSheets(targets: string[], payload: Json) {
-  if (!targets || targets.length === 0) return;
+export async function appendToSheet(args: { table?: string; row: Record<string, any> }) {
+  const url = process.env.SHEETS_WEBHOOK_URL;
+  await postJson(url, { table: args.table || "Default", ...args.row });
+}
 
-  await Promise.allSettled(
-    targets.map((u) =>
-      fetch(u, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-        body: JSON.stringify(payload),
-      })
-    )
-  );
+/**
+ * Legacy “sales” convenience. Old code calls appendToSales(row)
+ * and expects it to hit the same webhook.
+ */
+export async function appendToSales(row: SalesPayload) {
+  const url = process.env.SHEETS_WEBHOOK_URL;
+  await postJson(url, row);
 }
