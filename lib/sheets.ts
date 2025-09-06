@@ -1,10 +1,10 @@
 // lib/sheets.ts
 /**
  * Posts sale events to your Google Apps Script webhooks (MuseMint + RST Global).
- * Uses robust retry + clear payload for easy sheet appending.
+ * Robust retry + JSON payload. Safe if either URL is missing.
  */
 
-type SaleLog = {
+export type SaleLog = {
   time: string;              // ISO timestamp
   source: string;            // "stripe"
   mode: "live" | "test";
@@ -17,16 +17,16 @@ type SaleLog = {
   receiptUrl?: string | null;
 };
 
-const MUSEMINT_URL = process.env.SHEETS_MUSEMINT_URL || process.env.SHEETS_WEBHOOK_URL; // keep backward compat
-const RST_URL = process.env.SHEETS_RST_URL || process.env.SHEETS_WEBHOOK_URL_RST;
+const MUSEMINT_URL =
+  process.env.SHEETS_MUSEMINT_URL || process.env.SHEETS_WEBHOOK_URL; // backward compat
+const RST_URL =
+  process.env.SHEETS_RST_URL || process.env.SHEETS_WEBHOOK_URL_RST;
 
 async function postJson(url: string, body: unknown) {
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    // Most Apps Script webapps accept JSON; if yours expects form-encoded, we can switch.
     body: JSON.stringify(body),
-    // Avoid long hangs
     cache: "no-store",
   });
   if (!res.ok) {
@@ -50,4 +50,22 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3, delayMs = 600) {
 }
 
 /** Log to MuseMint Sales Log (if URL set) */
-export async function logMuseMintSale(entry:
+export async function logMuseMintSale(entry: SaleLog) {
+  if (!MUSEMINT_URL) return;
+  await withRetry(() => postJson(MUSEMINT_URL, { type: "sale", ...entry }));
+}
+
+/** Log to RST Global Sales/Events Log (if URL set) */
+export async function logRSTSale(entry: SaleLog) {
+  if (!RST_URL) return;
+  await withRetry(() => postJson(RST_URL, { type: "sale", ...entry }));
+}
+
+/** Helper to fan out to both (non-fatal if either missing) */
+export async function logSaleToSheets(entry: SaleLog) {
+  const tasks: Promise<any>[] = [];
+  if (MUSEMINT_URL) tasks.push(logMuseMintSale(entry));
+  if (RST_URL) tasks.push(logRSTSale(entry));
+  if (tasks.length === 0) return;
+  await Promise.allSettled(tasks);
+}
