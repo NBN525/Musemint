@@ -1,33 +1,29 @@
-import Link from "next/link";
-import { PRODUCT } from "../../lib/config"; // ← up one to /lib
+// app/success/page.tsx
+"use client";
 
 export default function SuccessPage() {
   return (
-    <main className="min-h-screen bg-black text-white flex items-center justify-center p-6">
-      <div className="max-w-2xl w-full space-y-6 text-center">
-        <h1 className="text-2xl font-semibold">Payment received 🎉</h1>
-        <p className="text-white/80">
-          Thanks for supporting {PRODUCT.name || "our work"}.
-          We emailed your receipt and links. If you don’t see it, check spam or contact{" "}
-          <a className="underline" href="mailto:hello@rstglobal.ca">hello@rstglobal.ca</a>.
+    <main className="min-h-screen flex items-center justify-center bg-black text-white p-6">
+      <div className="w-full max-w-xl text-center space-y-6">
+        <h1 className="text-3xl font-bold text-green-400">🎉 Payment Successful!</h1>
+        <p className="text-lg text-white/80">
+          Thank you for your purchase. Your product is ready below.
         </p>
-        <div className="space-y-2 text-left bg-white/5 border border-white/10 p-4 rounded-xl">
-          <p className="font-medium">Download your purchase:</p>
-          <ul className="list-disc pl-5 text-white/80">
-            <li>Notion template link (coming soon)</li>
-            <li>Google Sheets pack (coming soon)</li>
-            <li>PDF bundle (coming soon)</li>
-          </ul>
-        </div>
-        <div className="flex gap-3 justify-center">
-          <Link href="/" className="rounded-xl px-4 py-2 bg-yellow-400 text-black font-medium">
-            Home
-          </Link>
-          <Link href="/rst/login" className="rounded-xl px-4 py-2 border border-white/15">
-            Open Dashboard
-          </Link>
-        </div>
+
+        {/* Replace this link with your Google Drive link */}
+        <a
+          href="https://drive.google.com/YOUR_PRODUCT_LINK"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center justify-center rounded-xl px-6 py-3 bg-yellow-400 text-black font-semibold hover:brightness-110 transition"
+        >
+          ⬇️ Download Your Product
+        </a>
+
+        <p className="text-sm text-white/60">
+          We’ve also emailed you this link. If you don’t see it, please check your spam folder.
+        </p>
       </div>
     </main>
   );
-    }
+}
