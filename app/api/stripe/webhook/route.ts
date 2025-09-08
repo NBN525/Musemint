@@ -125,16 +125,25 @@ export async function POST(req: NextRequest) {
       // ----- emails
       const subject = `Your MuseMint order is confirmed — ${currency} ${amount.toFixed(2)}`;
       const html = `
-        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111">
-          <h2>Thanks for your purchase!</h2>
-          <p>We’ve received your payment.</p>
-          <p><strong>Amount:</strong> ${currency} ${amount.toFixed(2)}</p>
-          <p><strong>Order:</strong> ${session.id}</p>
-          <p>We’ll send product access or next steps shortly.</p>
-          <hr style="border:none;border-top:1px solid #eee;margin:16px 0" />
-          <p style="font-size:12px;color:#666">From: ${RESEND_FROM}</p>
-        </div>
-      `;
+  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111">
+    <h2 style="color:#16a34a">🎉 Thanks for your purchase!</h2>
+    <p>We’ve received your payment.</p>
+    <p><strong>Amount:</strong> ${currency} ${amount.toFixed(2)}</p>
+    <p><strong>Order:</strong> ${session.id}</p>
+
+    <p style="margin:20px 0">
+      <a href="https://drive.google.com/YOUR_PRODUCT_LINK"
+         style="display:inline-block;background:#facc15;color:#111;padding:12px 20px;
+                border-radius:8px;text-decoration:none;font-weight:bold">
+        ⬇️ Download Your Product
+      </a>
+    </p>
+
+    <p>We’ll also keep you updated with improvements and new tools from MuseMint.</p>
+    <hr style="border:none;border-top:1px solid #eee;margin:16px 0" />
+    <p style="font-size:12px;color:#666">From: ${RESEND_FROM}</p>
+  </div>
+`;
       if (buyerEmail) await sendEmail({ to: buyerEmail, subject, html });
       if (RESEND_TO) {
         const adminHtml = `
