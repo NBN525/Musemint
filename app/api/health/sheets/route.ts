@@ -1,10 +1,11 @@
 // app/api/health/sheets/route.ts
 import { NextResponse } from "next/server";
-import { sheetsHealth } from "@/lib/sheets";
-
 export const runtime = "edge";
 
 export async function GET() {
-  const h = await sheetsHealth();
-  return NextResponse.json({ ok: true, ...h });
+  const env_present = {
+    musemint: !!process.env.SHEETS_MUSEMINT_URL,
+    rst: !!process.env.SHEETS_RST_URL,
+  };
+  return NextResponse.json({ ok: true, env_present }, { status: 200 });
 }
