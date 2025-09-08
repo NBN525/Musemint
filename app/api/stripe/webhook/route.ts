@@ -1,18 +1,17 @@
 // app/api/stripe/webhook/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import { Resend } from "resend";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/* ---------------------- INLINE RESEND EMAIL HELPERS ---------------------- */
-import { Resend } from "resend";
-
+// ---------- RESEND (inline) ----------
 const RESEND_KEY  = process.env.RESEND_API_KEY || "";
-const RESEND_FROM = process.env.RESEND_FROM || "MuseMint Receipts <hello@rstglobal.ca>";
-const RESEND_TO   = process.env.RESEND_TO || ""; // optional internal inbox
+const RESEND_FROM = process.env.RESEND_FROM || "MuseMint <hello@rstglobal.ca>";
+const RESEND_TO   = process.env.RESEND_TO || "";
 
-function getResend(): Resend | null {
+function getResend() {
   return RESEND_KEY ? new Resend(RESEND_KEY) : null;
 }
 function stripHtml(html: string) {
@@ -23,20 +22,18 @@ function stripHtml(html: string) {
     .replace(/\s+/g, " ")
     .trim();
 }
-async function sendEmail({
-  to, subject, html,
-}: { to: string; subject: string; html: string }) {
+async function sendEmail(opts: {to: string; subject: string; html: string}) {
   const resend = getResend();
-  if (!resend || !RESEND_FROM || !to) {
-    console.log("[email:skip]", { hasKey: !!RESEND_KEY, from: !!RESEND_FROM, to });
+  if (!resend || !RESEND_FROM || !opts.to) {
+    console.log("[email:skip]", { hasKey: !!RESEND_KEY, from: !!RESEND_FROM, to: opts.to });
     return { skipped: true };
   }
-  const text = stripHtml(html);
-  const resp = await resend.emails.send({
+  const text = stripHtml(opts.html);
+  const r = await resend.emails.send({
     from: RESEND_FROM,
-    to,
-    subject,
-    html,
+    to: opts.to,
+    subject: opts.subject,
+    html: opts.html,
     text,
     reply_to: "support@rstglobal.ca",
     headers: {
@@ -44,75 +41,60 @@ async function sendEmail({
       "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
     },
   });
-  console.log("[email:sent]", { to, id: (resp as any)?.id || null });
-  return resp;
+  console.log("[email:sent]", { to: opts.to, id: (r as any)?.id || null });
+  return r;
 }
-/* -------------------------- SHEETS LOGGING HELPERS -------------------------- */
-// expects your Apps Script web app URLs in env:
+// ------------------------------------
+
+// ---------- SHEETS POST HELPERS (inline, no imports) ----------
 const SHEETS_MUSEMINT_URL = process.env.SHEETS_MUSEMINT_URL || "";
 const SHEETS_RST_URL      = process.env.SHEETS_RST_URL || "";
 
-async function postJson(url: string, payload: any) {
-  if (!url) return { skipped: true, reason: "no-url" };
+async function postToScript(url: string, entry: any) {
+  if (!url) return { ok: false, skipped: true, reason: "missing url" };
   try {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      // Apps Script likes a flat JSON body
-      body: JSON.stringify(payload),
-      // No need for cache; these run server-side
+      body: JSON.stringify(entry),
     });
-    const text = await res.text().catch(() => "");
-    console.log("[sheets:resp]", { url: url.slice(0, 60) + "...", status: res.status, text });
-    return { ok: res.ok, status: res.status, text };
+    const text = await res.text();
+    return { ok: res.ok, status: res.status, body: text.slice(0, 500) };
   } catch (err: any) {
-    console.error("[sheets:error]", err?.message || err);
-    return { ok: false, error: err?.message || "fetch-failed" };
+    console.error("[sheets:error]", url, err?.message || err);
+    return { ok: false, error: err?.message || String(err) };
   }
 }
 
-// log one entry to MuseMint + RST sheets
-async function logStripeToSheets(entry: Record<string, any>) {
-  const payload = {
-    ...entry,
-    timestamp_app: new Date().toISOString(),
-    source: "stripe",
-  };
-  const results: any = {};
-  if (SHEETS_MUSEMINT_URL) {
-    results.musemint = await postJson(SHEETS_MUSEMINT_URL, payload);
-  }
-  if (SHEETS_RST_URL) {
-    results.rst = await postJson(SHEETS_RST_URL, payload);
-  }
-  return results;
+async function logMuseMint(entry: any) {
+  return postToScript(SHEETS_MUSEMINT_URL, entry);
 }
-/* --------------------------------------------------------------------------- */
+async function logRST(entry: any) {
+  return postToScript(SHEETS_RST_URL, entry);
+}
+// --------------------------------------------------------------
 
-// choose the correct webhook secret
+// ---------- STRIPE ----------
 function getWebhookSecret(): string {
-  const mode = (process.env.STRIPE_WEBHOOK_MODE || "live").toLowerCase(); // "live" | "test"
+  const mode = (process.env.STRIPE_WEBHOOK_MODE || "live").toLowerCase();
   const live = process.env.STRIPE_WEBHOOK_SECRET_LIVE || process.env.STRIPE_WEBHOOK_SECRET;
   const test = process.env.STRIPE_WEBHOOK_SECRET_TEST;
   return mode === "test" ? (test as string) : (live as string);
 }
-
 const stripe = new Stripe(
-  (process.env.STRIPE_SECRET_KEY_LIVE ||
-    process.env.STRIPE_SECRET_KEY ||
-    "") as string,
+  (process.env.STRIPE_SECRET_KEY_LIVE || process.env.STRIPE_SECRET_KEY || "") as string,
   { apiVersion: "2024-06-20" }
 );
+// --------------------------------------------------------------
 
-// Optional GET so /api/stripe/webhook doesn’t 405 in browser
 export async function GET() {
   return NextResponse.json({ ok: true }, { status: 200 });
 }
 
 export async function POST(req: NextRequest) {
-  const rawBody = await req.text();
+  const rawBody  = await req.text();
   const signature = req.headers.get("stripe-signature") || "";
-  const secret = getWebhookSecret();
+  const secret    = getWebhookSecret();
 
   if (!secret) {
     console.error("[stripe] missing webhook secret");
@@ -128,71 +110,62 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    switch (event.type) {
-      case "checkout.session.completed": {
-        const session = event.data.object as Stripe.Checkout.Session;
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object as Stripe.Checkout.Session;
 
-        const buyerEmail =
-          session.customer_details?.email ||
-          (typeof session.customer === "string" ? undefined : (session.customer as any)?.email) ||
-          "";
+      // Buyer email (if available)
+      const buyerEmail =
+        session.customer_details?.email ||
+        (typeof session.customer === "string" ? undefined : session.customer?.email) ||
+        "";
 
-        const amount   = (session.amount_total || 0) / 100;
-        const currency = (session.currency || "usd").toUpperCase();
-        const product  = session.metadata?.productName || process.env.NEXT_PUBLIC_PRODUCT_NAME || "Product";
-        const subj     = `Your ${product} order is confirmed — ${currency} ${amount.toFixed(2)}`;
+      const amount   = (session.amount_total || 0) / 100;
+      const currency = (session.currency || "usd").toUpperCase();
 
-        // 1) Customer confirmation
-        if (buyerEmail) {
-          const html = `
-            <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111">
-              <h2>Thanks for your purchase!</h2>
-              <p>We’ve received your payment for <strong>${product}</strong>.</p>
-              <p><strong>Amount:</strong> ${currency} ${amount.toFixed(2)}</p>
-              <p><strong>Order:</strong> ${session.id}</p>
-              <p>We’ll send product access / next steps shortly.</p>
-              <hr style="border:none;border-top:1px solid #eee;margin:16px 0" />
-              <p style="font-size:12px;color:#666">From: ${RESEND_FROM}</p>
-            </div>
-          `;
-          await sendEmail({ to: buyerEmail, subject: subj, html });
-        } else {
-          console.log("[email:skip] no buyer email on session", { session: session.id });
-        }
-
-        // 2) Internal notification (optional)
-        if (RESEND_TO) {
-          const adminHtml = `
-            <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111">
-              <h3>New ${product} order</h3>
-              <p><strong>Session:</strong> ${session.id}</p>
-              <p><strong>Customer:</strong> ${buyerEmail || "(none on session)"}</p>
-              <p><strong>Total:</strong> ${currency} ${amount.toFixed(2)}</p>
-            </div>
-          `;
-          await sendEmail({
-            to: RESEND_TO,
-            subject: `New order — ${currency} ${amount.toFixed(2)}`,
-            html: adminHtml,
-          });
-        }
-
-        // 3) Sheets logging (MuseMint + RST)
-        await logStripeToSheets({
-          event: event.type,
-          session_id: session.id,
-          amount,
-          currency,
-          email: buyerEmail || "",
-          product,
-          mode: session.livemode ? "live" : "test",
-        });
-
-        break;
+      // ----- emails
+      const subject = `Your MuseMint order is confirmed — ${currency} ${amount.toFixed(2)}`;
+      const html = `
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111">
+          <h2>Thanks for your purchase!</h2>
+          <p>We’ve received your payment.</p>
+          <p><strong>Amount:</strong> ${currency} ${amount.toFixed(2)}</p>
+          <p><strong>Order:</strong> ${session.id}</p>
+          <p>We’ll send product access or next steps shortly.</p>
+          <hr style="border:none;border-top:1px solid #eee;margin:16px 0" />
+          <p style="font-size:12px;color:#666">From: ${RESEND_FROM}</p>
+        </div>
+      `;
+      if (buyerEmail) await sendEmail({ to: buyerEmail, subject, html });
+      if (RESEND_TO) {
+        const adminHtml = `
+          <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111">
+            <h3>New MuseMint order</h3>
+            <p><strong>Session:</strong> ${session.id}</p>
+            <p><strong>Customer:</strong> ${buyerEmail || "(none)"}</p>
+            <p><strong>Total:</strong> ${currency} ${amount.toFixed(2)}</p>
+          </div>
+        `;
+        await sendEmail({ to: RESEND_TO, subject: `New order — ${currency} ${amount.toFixed(2)}`, html: adminHtml });
       }
 
-      default:
-        console.log("[stripe] unhandled event", event.type);
+      // ----- Sheets logging (MuseMint + RST). No Vault logging by request.
+      const saleRow = {
+        source: "stripe",
+        event: event.type,
+        session_id: session.id,
+        email: buyerEmail || "",
+        amount,
+        currency,
+        timestamp_app: new Date().toISOString(),
+      };
+      const [mm, rst] = await Promise.all([
+        logMuseMint(saleRow).catch(e => ({ ok: false, error: e?.message || String(e) })),
+        logRST(saleRow).catch(e => ({ ok: false, error: e?.message || String(e) })),
+      ]);
+      console.log("[sheets:mm]", mm);
+      console.log("[sheets:rst]", rst);
+    } else {
+      console.log("[stripe] unhandled event", event.type);
     }
   } catch (err: any) {
     console.error("[webhook handler error]", err?.message || err);
@@ -200,4 +173,4 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ received: true }, { status: 200 });
-        }
+}
