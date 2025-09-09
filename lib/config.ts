@@ -1,16 +1,23 @@
 // lib/config.ts
-export function env() {
-  return {
-    productName: process.env.NEXT_PUBLIC_PRODUCT_NAME || "Startup Business Planner (Pro)",
-    currency: (process.env.NEXT_PUBLIC_PRODUCT_CURRENCY || "USD").toUpperCase(),
-    listPrice: Number(process.env.NEXT_PUBLIC_PRODUCT_PRICE || "99"),
-    launchPrice: Number(process.env.NEXT_PUBLIC_PRODUCT_LAUNCH_PRICE || "49"),
-    downloadUrl: process.env.NEXT_PUBLIC_PRODUCT_DOWNLOAD_URL || "",
+export const PRODUCT_NAME =
+  process.env.NEXT_PUBLIC_PRODUCT_NAME || "Startup Business Planner (Pro)";
 
-    resendFrom: process.env.RESEND_FROM || "MuseMint <hello@rstglobal.ca>",
-    resendTo: process.env.RESEND_TO || "",
+export const PRODUCT_PRICE = Number(
+  process.env.NEXT_PUBLIC_PRODUCT_PRICE || 99
+);
 
-    sheetsMuseMintUrl: process.env.SHEETS_MUSEMINT_URL || "",
-    sheetsRstUrl: process.env.SHEETS_RST_URL || "",
-  };
-}
+export const PRODUCT_CURRENCY =
+  process.env.NEXT_PUBLIC_PRODUCT_CURRENCY || "CAD";
+
+export const BUY_URL = process.env.NEXT_PUBLIC_BUY_URL || ""; // Stripe Payment Link
+export const PRODUCT_DOWNLOAD_URL =
+  process.env.NEXT_PUBLIC_PRODUCT_DOWNLOAD_URL || ""; // Drive/Notion/Zip
+
+// For convenience in UIs that import `PRODUCT`
+export const PRODUCT = {
+  name: PRODUCT_NAME,
+  price: PRODUCT_PRICE,
+  currency: PRODUCT_CURRENCY,
+  buyUrl: BUY_URL,
+  downloadUrl: PRODUCT_DOWNLOAD_URL,
+};
