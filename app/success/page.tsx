@@ -1,51 +1,50 @@
 // app/success/page.tsx
-import { env } from "@/lib/config";
+"use client";
 
-export const dynamic = "force-dynamic";
+import { useSearchParams } from "next/navigation";
 
-async function getSession(session_id: string) {
-  try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ""}/api/stripe/session?session_id=${session_id}`, { cache: "no-store" });
-    if (!res.ok) return null;
-    return res.json();
-  } catch { return null; }
-}
-
-export default async function SuccessPage({ searchParams }: { searchParams: { [k: string]: string } }) {
-  const e = env();
-  const sessionId = searchParams?.session_id;
-  const session = sessionId ? await getSession(sessionId) : null;
-
-  const amount = session?.amount ? (session.amount / 100).toFixed(2) : e.launchPrice.toFixed(2);
-  const currency = (session?.currency || e.currency).toUpperCase();
+export default function SuccessPage() {
+  const params = useSearchParams();
+  const sessionId = params.get("session_id");
+  const downloadUrl = process.env.NEXT_PUBLIC_PRODUCT_DOWNLOAD_URL;
 
   return (
     <main className="min-h-screen bg-black text-white flex items-center justify-center p-6">
-      <div className="w-full max-w-2xl text-center space-y-6">
-        <h1 className="text-3xl font-semibold text-green-400">🎉 Thanks for your purchase!</h1>
-        <p className="text-white/80">
-          You’ve unlocked <b>{e.productName}</b>{session?.email ? <> for <span className="text-white">{session.email}</span></> : null}.
-        </p>
+      <div className="w-full max-w-lg space-y-6 text-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-16 h-16 rounded-full grid place-items-center bg-green-600">
+            <span className="text-2xl">✅</span>
+          </div>
+          <h1 className="text-3xl font-semibold">Payment Successful</h1>
+          <p className="text-white/70">
+            Thank you for your purchase! Your order is confirmed.
+          </p>
+          {sessionId && (
+            <p className="text-xs text-white/50">
+              Order ID: <code>{sessionId}</code>
+            </p>
+          )}
+        </div>
 
-        <div className="grid gap-2 place-items-center">
+        {downloadUrl ? (
           <a
-            href={e.downloadUrl}
+            href={downloadUrl}
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex items-center justify-center rounded-xl px-6 py-3 bg-yellow-400 text-black font-medium hover:brightness-110 transition"
           >
-            ⬇️ Download Your Planner
+            Download Your Product
           </a>
-          <p className="text-xs text-white/60">If the button doesn’t work, copy this link: {e.downloadUrl}</p>
-        </div>
+        ) : (
+          <div className="rounded-xl px-6 py-3 bg-white/5 border border-white/10 text-white/70">
+            Your product link will be emailed to you shortly. 🚀
+          </div>
+        )}
 
-        <div className="text-white/70">
-          <div><b>Amount:</b> {currency} {amount}</div>
-          <div><b>Order:</b> {sessionId || "—"}</div>
-        </div>
-
-        <p className="text-sm text-white/60">
-          Launch buyers get <b>{currency} {e.launchPrice.toFixed(2)}</b>. Standard price is {currency} {e.listPrice.toFixed(2)}.
+        <p className="text-xs text-white/50">
+          A receipt and confirmation were also sent to your email.
         </p>
       </div>
     </main>
   );
-      }
+}
