@@ -1,11 +1,17 @@
 // app/success/page.tsx
 "use client";
 
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
-export default function SuccessPage() {
+// Disable prerendering for this page so build doesn't try to statically generate it
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const runtime = "nodejs";
+
+function SuccessInner() {
   const params = useSearchParams();
-  const sessionId = params.get("session_id");
+  const sessionId = params.get("session_id") || "";
   const downloadUrl = process.env.NEXT_PUBLIC_PRODUCT_DOWNLOAD_URL;
 
   return (
@@ -19,11 +25,11 @@ export default function SuccessPage() {
           <p className="text-white/70">
             Thank you for your purchase! Your order is confirmed.
           </p>
-          {sessionId && (
+          {sessionId ? (
             <p className="text-xs text-white/50">
               Order ID: <code>{sessionId}</code>
             </p>
-          )}
+          ) : null}
         </div>
 
         {downloadUrl ? (
@@ -46,5 +52,13 @@ export default function SuccessPage() {
         </p>
       </div>
     </main>
+  );
+}
+
+export default function SuccessPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-black text-white flex items-center justify-center p-6">Loading…</div>}>
+      <SuccessInner />
+    </Suspense>
   );
 }
