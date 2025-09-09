@@ -1,81 +1,106 @@
 // app/api/stripe/webhook/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { Resend } from "resend";
-import { env } from "@/lib/config";
 
+// Force Node runtime for raw body handling + Stripe SDK
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// --- Stripe bootstrap ---
-const stripe = new Stripe(
-  (process.env.STRIPE_SECRET_KEY_LIVE || process.env.STRIPE_SECRET_KEY || "") as string,
-  { apiVersion: "2024-06-20" }
-);
+// ---------- Minimal email helper (optional) ----------
+import { Resend } from "resend";
+const RESEND_KEY = process.env.RESEND_API_KEY || "";
+const RESEND_FROM =
+  process.env.RESEND_FROM || "MuseMint Receipts <hello@rstglobal.ca>";
+const RESEND_TO = process.env.RESEND_TO || ""; // internal copy (optional)
+
+function safeText(html: string) {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function sendEmail(to: string, subject: string, html: string) {
+  if (!RESEND_KEY || !RESEND_FROM || !to) {
+    console.log("[email:skip]", { hasKey: !!RESEND_KEY, to, from: RESEND_FROM });
+    return;
+  }
+  const resend = new Resend(RESEND_KEY);
+  const text = safeText(html);
+  try {
+    const r = await resend.emails.send({
+      from: RESEND_FROM,
+      to,
+      subject,
+      html,
+      text,
+      reply_to: "support@rstglobal.ca",
+    });
+    console.log("[email:sent]", { to, id: (r as any)?.id });
+  } catch (e: any) {
+    // email should never crash the webhook
+    console.error("[email:error]", e?.message || e);
+  }
+}
+// ------------------------------------------------------
+
+// Select the right signing secret based on mode
 function getWebhookSecret(): string {
   const mode = (process.env.STRIPE_WEBHOOK_MODE || "live").toLowerCase();
-  const live = process.env.STRIPE_WEBHOOK_SECRET_LIVE || process.env.STRIPE_WEBHOOK_SECRET;
-  const test = process.env.STRIPE_WEBHOOK_SECRET_TEST;
-  return mode === "test" ? (test as string) : (live as string);
+  const live =
+    process.env.STRIPE_WEBHOOK_SECRET_LIVE ||
+    process.env.STRIPE_WEBHOOK_SECRET ||
+    "";
+  const test = process.env.STRIPE_WEBHOOK_SECRET_TEST || "";
+  return mode === "test" ? test : live;
 }
 
-// --- Resend helpers ---
-const RESEND_KEY = process.env.RESEND_API_KEY || "";
-function getResend(): Resend | null { return RESEND_KEY ? new Resend(RESEND_KEY) : null; }
-function stripHtml(html: string) {
-  return html.replace(/<style[\s\S]*?<\/style>/gi, " ")
-             .replace(/<script[\s\S]*?<\/script>/gi, " ")
-             .replace(/<[^>]+>/g, " ")
-             .replace(/\s+/g, " ").trim();
-}
-async function sendEmail(to: string, subject: string, html: string) {
-  const r = getResend(); const e = env();
-  if (!r || !e.resendFrom || !to) return { skipped: true };
-  const text = stripHtml(html);
-  return r.emails.send({
-    from: e.resendFrom,
-    to,
-    subject,
-    html,
-    text,
-    reply_to: "support@rstglobal.ca",
-    headers: {
-      "List-Unsubscribe": "<mailto:unsubscribe@rstglobal.ca>",
-      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-    },
-  });
-}
+const stripe = new Stripe(
+  (process.env.STRIPE_SECRET_KEY_LIVE ||
+    process.env.STRIPE_SECRET_KEY ||
+    "") as string,
+  { apiVersion: "2024-06-20" }
+);
 
-// --- Sheets logging (Apps Script exec urls) ---
-async function postToSheets(url: string, payload: any) {
-  if (!url) return { skipped: true };
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    // Apps Script exec endpoints require no auth when set to "anyone with link"
-  }).catch((e) => ({ ok: false, statusText: String(e) } as any));
-  if ((res as any)?.ok === false) return { ok: false };
-  try { return await (res as Response).json(); } catch { return { ok: true }; }
+// Optional GET so you can hit the URL in a browser without 405
+export async function GET() {
+  const hasKeys = {
+    sk: !!(process.env.STRIPE_SECRET_KEY_LIVE || process.env.STRIPE_SECRET_KEY),
+    wh: !!getWebhookSecret(),
+  };
+  return NextResponse.json({ ok: true, env: hasKeys }, { status: 200 });
 }
-
-// Optional GET so you don’t see 405 in browser
-export async function GET() { return NextResponse.json({ ok: true }, { status: 200 }); }
 
 export async function POST(req: NextRequest) {
-  const rawBody = await req.text();
-  const signature = req.headers.get("stripe-signature") || "";
   const secret = getWebhookSecret();
-  if (!secret) return NextResponse.json({ error: "Webhook secret missing" }, { status: 500 });
-
-  let event: Stripe.Event;
-  try {
-    event = stripe.webhooks.constructEvent(rawBody, signature, secret);
-  } catch (err: any) {
-    return NextResponse.json({ error: `Invalid signature: ${err?.message || "unknown"}` }, { status: 400 });
+  if (!secret) {
+    console.error("[stripe] Missing webhook signing secret env");
+    return NextResponse.json(
+      { error: "Server not configured (signing secret missing)" },
+      { status: 500 }
+    );
   }
 
-  const e = env();
+  let event: Stripe.Event;
+  let rawBody = "";
+  let sig = "";
+
+  try {
+    rawBody = await req.text(); // IMPORTANT: raw body for signature check
+    sig = req.headers.get("stripe-signature") || "";
+    event = stripe.webhooks.constructEvent(rawBody, sig, secret);
+  } catch (e: any) {
+    console.error("[stripe] Signature verification failed", {
+      msg: e?.message,
+      haveSig: !!sig,
+    });
+    return NextResponse.json(
+      { error: `Invalid signature: ${e?.message || "unknown"}` },
+      { status: 400 }
+    );
+  }
 
   try {
     switch (event.type) {
@@ -84,78 +109,78 @@ export async function POST(req: NextRequest) {
 
         const buyerEmail =
           session.customer_details?.email ||
-          (typeof session.customer === "string" ? undefined : session.customer?.email) || "";
+          (typeof session.customer === "string"
+            ? undefined
+            : session.customer?.email) ||
+          "";
 
         const amount = (session.amount_total || 0) / 100;
-        const currency = (session.currency || e.currency).toUpperCase();
+        const currency = (session.currency || "usd").toUpperCase();
 
-        // ---------- Customer success email ----------
+        // --- customer receipt (soft-fail) ---
         if (buyerEmail) {
           const html = `
-            <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:#111;line-height:1.55">
-              <h2 style="margin:0 0 10px">🎉 Thanks for your purchase!</h2>
-              <p style="margin:0 0 10px">
-                You secured <b>${e.productName}</b> at the
-                <b style="color:#16a34a">${e.launchPrice ? `${currency} ${e.launchPrice.toFixed(2)}` : "launch price"}</b>.
-              </p>
-              <p style="margin:0 0 12px"><b>Order:</b> ${session.id}<br/><b>Amount:</b> ${currency} ${amount.toFixed(2)}</p>
-
-              <p style="margin:16px 0 8px">Your download:</p>
-              <a href="${e.downloadUrl}" 
-                 style="display:inline-block;background:#facc15;color:#111;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600">
-                 ⬇️ Download Your Planner
-              </a>
-              <p style="font-size:12px;color:#666;margin-top:8px">If the button doesn’t work, open: <br/>${e.downloadUrl}</p>
-
-              <hr style="border:none;border-top:1px solid #eee;margin:20px 0" />
-              <p style="font-size:12px;color:#666;margin:0">From: ${e.resendFrom}</p>
-            </div>
-          `;
-          await sendEmail(buyerEmail, `Your ${e.productName} is ready — ${currency} ${amount.toFixed(2)}`, html);
+            <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111">
+              <h2>Thanks for your purchase!</h2>
+              <p>We've received your payment.</p>
+              <p><strong>Amount:</strong> ${currency} ${amount.toFixed(2)}</p>
+              <p><strong>Order:</strong> ${session.id}</p>
+              <p>We’ll send product access or next steps shortly.</p>
+            </div>`;
+          await sendEmail(
+            buyerEmail,
+            `Your order is confirmed — ${currency} ${amount.toFixed(2)}`,
+            html
+          );
+        } else {
+          console.log("[email:skip] no buyer email on session", { id: session.id });
         }
 
-        // ---------- Internal email ----------
-        if (e.resendTo) {
+        // --- internal notification (soft-fail) ---
+        if (RESEND_TO) {
           const adminHtml = `
-            <div style="font-family:system-ui,Roboto,Arial;color:#111">
-              <h3 style="margin:0 0 8px">New order</h3>
-              <p><b>Product:</b> ${e.productName}<br/>
-                 <b>Session:</b> ${session.id}<br/>
-                 <b>Customer:</b> ${buyerEmail || "(none)"}<br/>
-                 <b>Total:</b> ${currency} ${amount.toFixed(2)}</p>
-              <pre style="font-size:12px;background:#f7f7f7;padding:8px;border-radius:6px;white-space:pre-wrap">${JSON.stringify(session, null, 2)}</pre>
-            </div>
-          `;
-          await sendEmail(e.resendTo, `New order — ${currency} ${amount.toFixed(2)}`, adminHtml);
+            <div style="font-family:system-ui">
+              <h3>New order</h3>
+              <p><b>Session:</b> ${session.id}</p>
+              <p><b>Customer:</b> ${buyerEmail || "(none on session)"}</p>
+              <p><b>Total:</b> ${currency} ${amount.toFixed(2)}</p>
+            </div>`;
+          await sendEmail(
+            RESEND_TO,
+            `New order — ${currency} ${amount.toFixed(2)}`,
+            adminHtml
+          );
         }
 
-        // ---------- Sheets logging (MuseMint + RST) ----------
-        const payload = {
-          source: "stripe",
-          event: "checkout.session.completed",
-          session_id: session.id,
-          email: buyerEmail,
-          currency,
-          amount,
-          product: e.productName,
-          sku: "PLANNER-PRO",
-          qty: 1,
-        };
-        await Promise.all([
-          postToSheets(e.sheetsMuseMintUrl, payload),
-          postToSheets(e.sheetsRstUrl, payload),
-        ]);
+        // --- sheets logging (soft-fail) ---
+        try {
+          await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ""}/api/debug/sheets`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              source: "stripe-webhook",
+              event: event.type,
+              session_id: session.id,
+              email: buyerEmail,
+              currency,
+              amount,
+            }),
+          });
+        } catch (e: any) {
+          console.error("[sheets:log:error]", e?.message || e);
+        }
 
         break;
       }
 
       default:
-        // noop
-        break;
+        console.log("[stripe] Unhandled event", event.type);
     }
-  } catch (err: any) {
-    return NextResponse.json({ error: `Handler error: ${err?.message || "unknown"}` }, { status: 500 });
+  } catch (e: any) {
+    // Never 500 on side-effects; log and acknowledge
+    console.error("[webhook:handler:error]", e?.message || e);
   }
 
+  // Always acknowledge so Stripe stops retrying (unless signature invalid)
   return NextResponse.json({ received: true }, { status: 200 });
-    }
+}
