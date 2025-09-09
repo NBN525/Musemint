@@ -1,16 +1,16 @@
-// /lib/config.ts
-export const PRODUCT = {
-  name: process.env.PRODUCT_NAME ?? "",
-  short: process.env.PRODUCT_SHORT ?? "",
-  desc: process.env.PRODUCT_DESC ?? "",
-  bullets: (process.env.PRODUCT_BULLETS ?? "")
-    .split(";")
-    .map(s => s.trim())
-    .filter(Boolean),
-  badge: process.env.PRODUCT_BADGE ?? "",
-  priceNote: process.env.PRICE_NOTE ?? "",
-  currency: process.env.NEXT_PUBLIC_PRODUCT_CURRENCY ?? "USD",
-  price: process.env.NEXT_PUBLIC_PRODUCT_PRICE
-    ? Number(process.env.NEXT_PUBLIC_PRODUCT_PRICE)
-    : undefined,
-};
+// lib/config.ts
+export function env() {
+  return {
+    productName: process.env.NEXT_PUBLIC_PRODUCT_NAME || "Startup Business Planner (Pro)",
+    currency: (process.env.NEXT_PUBLIC_PRODUCT_CURRENCY || "USD").toUpperCase(),
+    listPrice: Number(process.env.NEXT_PUBLIC_PRODUCT_PRICE || "99"),
+    launchPrice: Number(process.env.NEXT_PUBLIC_PRODUCT_LAUNCH_PRICE || "49"),
+    downloadUrl: process.env.NEXT_PUBLIC_PRODUCT_DOWNLOAD_URL || "",
+
+    resendFrom: process.env.RESEND_FROM || "MuseMint <hello@rstglobal.ca>",
+    resendTo: process.env.RESEND_TO || "",
+
+    sheetsMuseMintUrl: process.env.SHEETS_MUSEMINT_URL || "",
+    sheetsRstUrl: process.env.SHEETS_RST_URL || "",
+  };
+}
