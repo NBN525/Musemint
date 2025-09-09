@@ -1,132 +1,76 @@
-"use client";
-import { useState } from "react";
-import { PRODUCT } from "../lib/config";  // ← up one level to /lib
+// app/page.tsx
+// Server component, static-safe & no fancy Intl formatting.
+// If you use a Stripe Payment Link, set NEXT_PUBLIC_BUY_URL in Vercel.
+
+import Link from "next/link";
+
+export const dynamic = "force-static";
+
+function readEnv() {
+  const currency = (process.env.NEXT_PUBLIC_PRODUCT_CURRENCY || "USD").toUpperCase();
+  const listPrice = Number(process.env.NEXT_PUBLIC_PRODUCT_PRICE || "99");
+  const launchPrice = Number(process.env.NEXT_PUBLIC_PRODUCT_LAUNCH_PRICE || "49");
+  const productName = process.env.NEXT_PUBLIC_PRODUCT_NAME || "Startup Business Planner (Pro)";
+  const buyUrl = process.env.NEXT_PUBLIC_BUY_URL || ""; // optional Stripe Payment Link
+  return { currency, listPrice, launchPrice, productName, buyUrl };
+}
 
 export default function Home() {
-  const [loading, setLoading] = useState(false);
-  const [notifyLoading, setNotifyLoading] = useState(false);
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
-
-  async function startCheckout() {
-    try {
-      setLoading(true);
-      const res = await fetch("/api/stripe/create-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sku: "supporter", quantity: 1 }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Failed to start checkout");
-      window.location.href = data.url;
-    } catch (e: any) {
-      setMsg(e?.message || "Unable to start checkout");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function submitNotify(e: React.FormEvent) {
-    e.preventDefault();
-    setMsg(null);
-    if (!email) {
-      setMsg("Please enter an email.");
-      return;
-    }
-    try {
-      setNotifyLoading(true);
-      const res = await fetch("/api/notify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, name }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Failed to subscribe");
-      setMsg("Thanks! You’re on the list.");
-      setEmail("");
-      setName("");
-    } catch (e: any) {
-      setMsg(e?.message || "Subscription failed");
-    } finally {
-      setNotifyLoading(false);
-    }
-  }
+  const e = readEnv();
 
   return (
     <main className="min-h-screen bg-black text-white flex items-center justify-center p-6">
-      <div className="w-full max-w-2xl text-center space-y-8">
+      <div className="w-full max-w-3xl text-center space-y-8">
         <div className="flex flex-col items-center space-y-3">
           <div className="w-16 h-16 rounded-full grid place-items-center bg-[#0a0f12] border border-white/10">
-            <span className="text-2xl">🌱</span>
+            <span className="text-2xl">📈</span>
           </div>
           <h1 className="text-3xl font-semibold">MuseMint</h1>
           <p className="text-white/70">
-            Smart tools & templates for digital planners and business growth — by{" "}
-            <a href="https://rstglobal.ca" className="underline">RST Global</a>.
+            <b>{e.productName}</b> — premium startup planner suite with live dashboards,
+            auto-logging, and launch-ready delivery.
           </p>
         </div>
 
-        {/* Primary actions */}
+        <div className="rounded-2xl border border-white/10 p-5 bg-white/5">
+          <p className="text-white/80">
+            <span className="mr-2 line-through opacity-60">
+              {e.currency} {e.listPrice.toFixed(2)}
+            </span>
+            <span className="inline-flex items-center rounded-lg px-2 py-1 bg-yellow-400 text-black font-semibold">
+              Launch {e.currency} {e.launchPrice.toFixed(2)}
+            </span>
+          </p>
+        </div>
+
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          {e.buyUrl ? (
+            <a
+              href={e.buyUrl}
+              className="inline-flex items-center justify-center rounded-xl px-6 py-3 bg-yellow-400 text-black font-medium hover:brightness-110 transition"
+            >
+              Buy Now
+            </a>
+          ) : (
+            <Link
+              href="/success"
+              className="inline-flex items-center justify-center rounded-xl px-6 py-3 bg-yellow-400 text-black font-medium hover:brightness-110 transition"
+            >
+              Preview Success Page
+            </Link>
+          )}
+
           <a
             href="/rst/login"
-            className="inline-flex items-center justify-center rounded-xl px-5 py-3 bg-yellow-400 text-black font-medium hover:brightness-110 transition"
+            className="inline-flex items-center justify-center rounded-xl px-6 py-3 border border-white/15 hover:bg-white/5 transition"
           >
             Open Dashboard
           </a>
-
-          <button
-            onClick={startCheckout}
-            disabled={loading}
-            className="inline-flex items-center justify-center rounded-xl px-5 py-3 border border-white/15 hover:bg-white/5 transition disabled:opacity-50"
-          >
-            {loading ? "Starting…" : PRODUCT.short ? `Buy ${PRODUCT.short}` : "Buy"}
-          </button>
         </div>
 
-        {/* Notify form */}
-        <form
-          onSubmit={submitNotify}
-          className="mx-auto grid grid-cols-1 sm:grid-cols-[1fr,1fr,auto] gap-2 max-w-2xl"
-        >
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Your name (optional)"
-            className="rounded-xl bg-white/5 border border-white/10 px-4 py-3 outline-none focus:border-white/25"
-          />
-          <input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@email.com"
-            type="email"
-            className="rounded-xl bg-white/5 border border-white/10 px-4 py-3 outline-none focus:border-white/25"
-            required
-          />
-          <button
-            type="submit"
-            disabled={notifyLoading}
-            className="rounded-xl px-5 py-3 bg-yellow-400 text-black font-medium hover:brightness-110 transition disabled:opacity-50"
-          >
-            {notifyLoading ? "Adding…" : "Notify me"}
-          </button>
-        </form>
-
-        {msg && <p className="text-sm text-white/80">{msg}</p>}
-
-        {/* Product highlights pulled from envs */}
-        {!!PRODUCT.bullets.length && (
-          <ul className="text-sm text-white/70 space-y-1">
-            {PRODUCT.bullets.map((b, i) => (
-              <li key={i}>• {b}</li>
-            ))}
-          </ul>
-        )}
-
-        {PRODUCT.priceNote && (
-          <p className="text-xs text-white/50">{PRODUCT.priceNote}</p>
-        )}
+        <p className="text-xs text-white/50">
+          Tip: set <code className="px-1 rounded bg-white/10">NEXT_PUBLIC_BUY_URL</code> to your Stripe Payment Link to enable the Buy button.
+        </p>
       </div>
     </main>
   );
