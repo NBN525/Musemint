@@ -1,61 +1,20 @@
-// app/rst/login/page.tsx
-"use client";
-
-import { useState } from "react";
-
-export default function LoginPage() {
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-
-    try {
-      const res = await fetch("/api/rst/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-
-      if (res.ok) {
-        window.location.href = "/rst/dashboard";
-      } else {
-        const data = await res.json();
-        setError(data.error || "Login failed");
-      }
-    } catch (err) {
-      console.error(err);
-      setError("Unexpected error, please try again.");
-    }
-  };
-
+export const dynamic = "force-dynamic";
+export default function Portal() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white p-6 rounded shadow-md w-80"
-      >
-        <h1 className="text-xl font-semibold mb-4">RST Admin Login</h1>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Enter password"
-          className="w-full border p-2 rounded mb-3"
-        />
-        {error && (
-          <p className="text-red-600 text-sm mb-2">
-            {error}
-          </p>
-        )}
-        <button
-          type="submit"
-          className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
+    <main className="min-h-screen bg-black text-white grid place-items-center p-6">
+      <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-[#0b0f14] p-6">
+        <h1 className="text-2xl font-semibold">Customer Portal</h1>
+        <p className="mt-2 text-white/70">
+          Manage your purchases and billing. Coming soon — we’ll connect this to
+          Stripe Customer Portal.
+        </p>
+        <a
+          href="/"
+          className="mt-6 inline-flex items-center justify-center rounded-xl px-5 py-3 border border-white/15 hover:bg-white/5 transition"
         >
-          Login
-        </button>
-      </form>
-    </div>
+          Back to site
+        </a>
+      </div>
+    </main>
   );
 }
