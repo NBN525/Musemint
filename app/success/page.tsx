@@ -3,22 +3,34 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
+// Stop prerender errors
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const PRODUCT_NAME =
   process.env.NEXT_PUBLIC_PRODUCT_NAME || "Startup Planner Pro";
 const DOWNLOAD_URL =
   process.env.NEXT_PUBLIC_PRODUCT_DOWNLOAD_URL || "";
-const CURRENCY =
-  process.env.NEXT_PUBLIC_PRODUCT_CURRENCY || "USD";
+const FALLBACK_CURRENCY =
+  (process.env.NEXT_PUBLIC_PRODUCT_CURRENCY || "USD").toUpperCase();
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-b border-white/10 pb-2">
+      <div className="text-white/60">{label}</div>
+      <div className="font-medium text-right break-all">{value || "—"}</div>
+    </div>
+  );
+}
 
 export default function SuccessPage() {
   const q = useSearchParams();
-
-  // Optional details coming from Stripe's success_url (if you add them)
   const sessionId = q.get("session_id") || "";
   const email = q.get("email") || "";
-  const amount = q.get("amount") || "";
   const status = q.get("status") || "paid";
-  const currency = (q.get("currency") || CURRENCY).toUpperCase();
+  const currency = (q.get("currency") || FALLBACK_CURRENCY).toUpperCase();
+  const amountStr = q.get("amount");
+  const amount = amountStr ? Number(amountStr) : undefined;
 
   return (
     <main className="min-h-screen bg-black text-white">
@@ -83,20 +95,17 @@ export default function SuccessPage() {
             <div className="text-sm uppercase tracking-widest text-white/60">
               Receipt
             </div>
-
             <div className="mt-4 space-y-3 text-white/85">
               <Row label="Product" value={PRODUCT_NAME} />
               <Row
                 label="Amount"
                 value={
-                  amount
-                    ? `${currency} ${Number(amount).toFixed(2)}`
-                    : `${currency}`
+                  amount !== undefined ? `${currency} ${amount.toFixed(2)}` : currency
                 }
               />
               <Row label="Status" value={status} />
-              <Row label="Customer" value={email || "—"} />
-              <Row label="Order (session)" value={sessionId || "—"} />
+              <Row label="Customer" value={email} />
+              <Row label="Order (session)" value={sessionId} />
             </div>
 
             <div className="mt-8">
@@ -110,34 +119,17 @@ export default function SuccessPage() {
           </div>
         </div>
 
-        {/* Tips */}
         <div className="mt-10 rounded-2xl border border-white/10 bg-white/5 p-6">
           <div className="text-sm uppercase tracking-widest text-white/60">
             Getting started
           </div>
           <ul className="mt-3 list-disc pl-5 text-white/80 space-y-2">
-            <li>
-              Open the included setup guide and complete the 5-minute steps.
-            </li>
-            <li>
-              Optional: add your payment link & digest email to enable
-              automations.
-            </li>
-            <li>
-              Your dashboard tiles will update automatically after each sale.
-            </li>
+            <li>Open the setup guide and complete the 5-minute steps.</li>
+            <li>Optional: add your payment link & digest email for automations.</li>
+            <li>Your dashboard updates automatically after each sale.</li>
           </ul>
         </div>
       </section>
     </main>
   );
 }
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-4 border-b border-white/10 pb-2">
-      <div className="text-white/60">{label}</div>
-      <div className="font-medium text-right break-all">{value}</div>
-    </div>
-  );
-              }
